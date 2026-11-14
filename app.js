@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.6.0 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.7.0 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.6.0';
+const VERSAO_APP = '1.7.0';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -79,6 +79,7 @@ function aplicarAparencia() {
   document.title = (g.MARCA_SUBTITULO || 'Troca de Óleo') + ' – ' + (g.MARCA_NOME || '');
 }
 function guardarGeral(g) { if (!g) return; S.geral = { ...GERAL_PADRAO, ...g }; ls('to_geral', S.geral); aplicarAparencia(); reiniciarDescanso(); }
+const listaNomes = s => String(s || '').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
 function postoAtual(cod) { return S.postos.find(p => p.Codigo === (cod || S.posto)) || { Codigo: cod || S.posto, Nome: cod || S.posto || '' }; }
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 function ls(k, v) {
@@ -251,7 +252,7 @@ window.addEventListener('popstate', () => {
     PILHA.pop(); const t = PILHA[PILHA.length - 1]; render(t.tela, t.arg);
   }
 });
-const NAV_DE = { estoque: 'mais', cupom: 'os', cliente: 'clientes', 'cliente-form': 'clientes', 'os-form': 'os', modelos: 'mais', extrato: 'mais', lembretes: 'mais', dashboard: 'mais', usuarios: 'mais', config: 'mais' };
+const NAV_DE = { estoque: 'mais', cupom: 'os', cliente: 'clientes', 'cliente-form': 'clientes', 'os-form': 'os', modelos: 'mais', extrato: 'mais', lembretes: 'mais', usuarios: 'mais', config: 'mais' };
 function render(tela, arg) {
   S.tela = tela;
   $$('#nav button').forEach(b => b.classList.toggle('ativo', b.dataset.t === (NAV_DE[tela] || tela)));
@@ -364,10 +365,11 @@ function montarShell() {
     pode('cadastro') && { t: 'clientes', ic: '👤', r: 'Clientes' },
     pode('os_editar') && { t: 'os', ic: '🧾', r: 'O.S.' },
     { t: 'produtos', ic: '🛢️', r: 'Produtos' },
+    pode('dashboard') && { t: 'dashboard', ic: '📊', r: 'Painel' },
     pode('importar') && !pode('cadastro') && { t: 'importar', ic: '⬆️', r: 'Importar' },
     { t: 'mais', ic: '☰', r: 'Mais' }
   ].filter(Boolean);
-  $('#app').innerHTML = `<header class="topo${S.postos.length > 1 ? ' multi' : ''}"><button class="marca" id="tMarca" aria-label="Ir para o início">${placaHtml('OLE0A26')}<span class="txt"><b>${esc(nomePosto())}</b><small>${esc(S.geral.MARCA_SUBTITULO)}</small></span></button>${sel}<button class="sync" id="btnSync" aria-label="Atualizar dados">⟳</button></header>
+  $('#app').innerHTML = `<header class="topo${S.postos.length > 1 ? ' multi' : ''}"><button class="marca" id="tMarca" aria-label="Ir para o início">${placaHtml('OLE0A26')}<span class="txt"><b>${esc(nomePosto())}</b><small>👤 ${esc(S.user.nome || S.user.login)}${S.user.nome && !norm(S.user.nome).includes(norm(S.user.login)) ? ' · ' + esc(S.user.login) : ''}</small></span></button>${sel}<button class="sync" id="btnSync" aria-label="Atualizar dados">⟳</button></header>
     <main id="v" tabindex="-1"></main>
     <nav class="nav" id="nav">${nav.map(n => `<button data-t="${n.t}"><span class="ic" aria-hidden="true">${n.ic}</span>${n.r}</button>`).join('')}</nav>`;
   $('#tMarca').onclick = () => ir('inicio');
@@ -921,19 +923,94 @@ function escolherModelo() {
 
 /* ============ PRODUTOS ============ */
 function telaProdutos() {
-  const compra = pode('ver_compra');
-  V(`<div class="cab"><h1>Produtos</h1>${pode('importar') ? '<button class="btn" id="pImp">Importar</button>' : ''}</div>
+  const compra = pode('ver_compra'), ajusta = pode('ajustar_estoque');
+  const F = S.filtroProd = S.filtroProd || { sit: '', grupo: '', cat: '', posto: S.posto };
+  if (!S.postos.some(p => p.Codigo === F.posto)) F.posto = S.posto;
+  let base = D.produtos;
+  V(`<div class="cab"><h1>Produtos e estoque</h1><div class="botoes">${pode('importar') ? '<button class="btn" id="pImp">Importar</button>' : ''}<button class="btn" id="pXls">Planilha</button><button class="btn" id="pPdf">PDF</button></div></div>
     <div class="botoes" style="flex-wrap:nowrap"><input type="search" id="pq" placeholder="Código de barras, código ou nome" autocomplete="off"><button class="btn" id="pScan" aria-label="Ler código de barras pela câmera">📷</button></div>
-    <p class="suave peq">${D.produtos.length} produtos da rede (${D.produtos.filter(p => !p.Rede).length} importados para ${esc(nomePosto())}). Preço e estoque da última importação de cada posto; produtos só da rede aparecem com estoque 0 aqui.</p>
+    <div class="campos filtros" style="margin:.6rem 0">
+      ${S.postos.length > 1 ? `<div class="campo"><label for="fPo">Posto</label><select id="fPo">${S.postos.map(p => `<option value="${esc(p.Codigo)}"${p.Codigo === F.posto ? ' selected' : ''}>${esc(p.Nome)}</option>`).join('')}</select></div>` : ''}
+      <div class="campo"><label for="fSit">Estoque</label><select id="fSit">${[['', 'Todos'], ['com', 'Com estoque'], ['sem', 'Sem estoque (zero)'], ['neg', 'Negativos'], ['rede', 'Só da rede (não importado aqui)']].map(([k, n]) => `<option value="${k}"${k === F.sit ? ' selected' : ''}>${n}</option>`).join('')}</select></div>
+      <div class="campo"><label for="fGr">Grupo</label><select id="fGr"></select></div>
+      <div class="campo"><label for="fCat">Categoria</label><select id="fCat"></select></div>
+    </div>
+    <p class="suave peq" id="pRes"></p>
     <div class="bloco"><ul class="lista" id="pLista"></ul></div>`);
+  const opcoes = (el, campo, atual) => { const v = [...new Set(base.map(p => String(p[campo] || '').trim()).filter(Boolean))].sort(); el.innerHTML = `<option value="">Todos</option>${v.map(x => `<option${x === atual ? ' selected' : ''}>${esc(x)}</option>`).join('')}`; };
+  const filtrados = () => {
+    const q = $('#pq').value.trim(), toks = norm(q).split(' ').filter(Boolean);
+    return base.filter(p => {
+      const e = num(p.Estoque);
+      if (F.sit === 'com' && !(e > 0)) return false;
+      if (F.sit === 'sem' && e !== 0) return false;
+      if (F.sit === 'neg' && !(e < 0)) return false;
+      if (F.sit === 'rede' && !p.Rede) return false;
+      if (F.grupo && String(p.Grupo || '').trim() !== F.grupo) return false;
+      if (F.cat && String(p.Categoria || '').trim() !== F.cat) return false;
+      if (!q) return true;
+      const n = p._n || norm(`${p.Nome} ${p.Codigo} ${p.Grupo || ''}`);
+      return String(p.Codigo) === q || String(p.Barras || '').split(/[;,\s]+/).includes(q) || toks.every(t => n.includes(t));
+    });
+  };
   const mostrar = () => {
-    const l = buscarProdutos($('#pq').value, 80);
-    $('#pLista').innerHTML = l.length ? l.map(p => `<li style="display:flex;justify-content:space-between;gap:.8rem;padding:.6rem .2rem"><span style="min-width:0"><b>${esc(p.Nome)}</b><br><span class="suave peq">Cód. ${esc(p.Codigo)}${p.Barras ? ' – barras ' + esc(p.Barras) : ''}${p.Grupo ? ' – ' + esc(p.Grupo) : ''}${p.Rede ? ' – cadastro da rede (' + esc(nomePosto(p.PostoCadastro)) + '), sem estoque importado aqui' : ''}</span></span><span style="text-align:right;white-space:nowrap" class="num"><b>${brl(p.PrecoVenda)}</b>${compra && p.PrecoCompra !== undefined ? `<br><span class="suave peq">compra ${brl(p.PrecoCompra)}</span>` : ''}<br><span class="peq ${num(p.Estoque) <= 0 ? 'erro-campo' : 'suave'}">estoque ${fmtQtd(p.Estoque)} ${esc(p.Unidade || '')}</span></span></li>`).join('') : `<li class="vazio">${D.produtos.length ? 'Nada encontrado.' : 'Nenhum produto importado para este posto ainda.'}</li>`;
+    const l = filtrados(), nomeP = (S.postos.find(p => p.Codigo === F.posto) || {}).Nome || F.posto;
+    $('#pRes').textContent = `${l.length} de ${base.length} produto(s) – ${nomeP}. Saldo e preço da última importação do B2Click${ajusta ? '; toque em Ajustar para corrigir um saldo' : ''}.`;
+    $('#pLista').innerHTML = l.length ? l.slice(0, 200).map((p, i) => `<li style="display:flex;justify-content:space-between;gap:.8rem;padding:.6rem .2rem"><span style="min-width:0"><b>${esc(p.Nome)}</b><br><span class="suave peq">Cód. ${esc(p.Codigo)}${p.Barras ? ' – barras ' + esc(p.Barras) : ''}${p.Grupo ? ' – ' + esc(p.Grupo) : ''}${p.Categoria ? ' – ' + esc(p.Categoria) : ''}${p.Rede ? ' – cadastro da rede, sem estoque importado aqui' : ''}</span></span><span style="text-align:right;white-space:nowrap" class="num"><b>${brl(p.PrecoVenda)}</b>${compra && p.PrecoCompra !== undefined ? `<br><span class="suave peq">compra ${brl(p.PrecoCompra)}</span>` : ''}<br><span class="peq ${num(p.Estoque) <= 0 ? 'erro-campo' : 'suave'}">estoque ${fmtQtd(p.Estoque)} ${esc(p.Unidade || '')}</span>${ajusta && !p.Rede ? `<br><button class="btn-link peq" data-aj="${i}">Ajustar</button>` : ''}</span></li>`).join('') + (l.length > 200 ? `<li class="vazio">Mostrando 200 de ${l.length}. Use a busca ou os filtros, ou baixe a planilha.</li>` : '')
+      : `<li class="vazio">${base.length ? 'Nada encontrado com esses filtros.' : 'Nenhum produto importado para este posto ainda.'}</li>`;
+    $$('#pLista [data-aj]').forEach(b => { b.onclick = () => ajustarSaldo(l[+b.dataset.aj], F.posto).then(ok => { if (ok) mostrar(); }); });
+  };
+  const recarregar = async () => {
+    if (F.posto === S.posto) base = D.produtos;
+    else { $('#pRes').textContent = 'Carregando…'; const j = await api('produtosPosto', { posto: F.posto }); if (j.erro) throw new Error(j.erro); base = j.produtos; base.forEach(p => { p._n = norm(`${p.Nome} ${p.Codigo} ${p.Grupo || ''}`); }); }
+    opcoes($('#fGr'), 'Grupo', F.grupo); opcoes($('#fCat'), 'Categoria', F.cat); mostrar();
   };
   $('#pq').oninput = debounce(mostrar, 140);
+  $('#fSit').onchange = () => { F.sit = $('#fSit').value; mostrar(); };
+  $('#fGr').onchange = () => { F.grupo = $('#fGr').value; mostrar(); };
+  $('#fCat').onchange = () => { F.cat = $('#fCat').value; mostrar(); };
+  if ($('#fPo')) $('#fPo').onchange = () => { F.posto = $('#fPo').value; F.grupo = F.cat = ''; recarregar().catch(e => toast(e.message, 'erro')); };
   $('#pScan').onclick = async () => { const c = await escanear(); if (c) { $('#pq').value = c; mostrar(); } };
   if ($('#pImp')) $('#pImp').onclick = () => ir('importar');
-  mostrar();
+  const titulo = () => `Estoque ${(S.postos.find(p => p.Codigo === F.posto) || {}).Nome || F.posto} ${dataBR(hojeISO())}`;
+  const colunas = () => [['Código', 'Codigo'], ['Barras', 'Barras'], ['Produto', 'Nome'], ['Grupo', 'Grupo'], ['Categoria', 'Categoria'], ['Unid.', 'Unidade'], ['Preço venda', 'PrecoVenda']].concat(compra ? [['Preço compra', 'PrecoCompra']] : []).concat([['Estoque', 'Estoque']]);
+  $('#pXls').onclick = e => ocupado(e.currentTarget, async () => {
+    await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+    const cs = colunas(), l = filtrados();
+    const ws = window.XLSX.utils.aoa_to_sheet([cs.map(c => c[0])].concat(l.map(p => cs.map(([, k]) => /Preco|Estoque/.test(k) ? num(p[k]) : String(p[k] ?? '')))));
+    const wb = window.XLSX.utils.book_new(); window.XLSX.utils.book_append_sheet(wb, ws, 'Estoque');
+    window.XLSX.writeFile(wb, nomeArquivo(titulo()).replace(/\.pdf$/, '.xlsx'));
+  });
+  $('#pPdf').onclick = e => ocupado(e.currentTarget, async () => {
+    const cs = colunas(), l = filtrados();
+    const filtro = [F.sit && $('#fSit').selectedOptions[0].text, F.grupo && 'grupo ' + F.grupo, F.cat && 'categoria ' + F.cat].filter(Boolean).join(', ');
+    const html = htmlDoc(`<table class="sem" style="border-bottom:3px solid #4A1B6D"><tr><td><h1>${esc(titulo())}</h1><span class="peq">${l.length} produto(s)${filtro ? ' – ' + esc(filtro) : ''}</span></td></tr></table>
+      <table><tr>${cs.map(c => `<th${/Preço|Estoque/.test(c[0]) ? ' class="r"' : ''}>${esc(c[0])}</th>`).join('')}</tr>${l.map(p => `<tr>${cs.map(([, k]) => /Preco/.test(k) ? `<td class="r">${brl(p[k])}</td>` : k === 'Estoque' ? `<td class="r">${fmtQtd(p[k])}</td>` : `<td>${esc(p[k] ?? '')}</td>`).join('')}</tr>`).join('')}</table>`, 'A4', titulo());
+    await menuImprimir(() => html, titulo());
+  });
+  recarregar().catch(e => toast(e.message, 'erro'));
+}
+async function ajustarSaldo(p, posto) {
+  const lideres = listaNomes(postoAtual(posto).Lideres);
+  return new Promise(res => {
+    let feito = false;
+    const m = abrirModal('Ajustar estoque', `<p><b>${esc(p.Nome)}</b><br><span class="suave peq">Cód. ${esc(p.Codigo)} – saldo atual ${fmtQtd(p.Estoque)} ${esc(p.Unidade || '')}</span></p>
+      <div class="campos"><div class="campo"><label for="ajN">Novo saldo</label><input id="ajN" type="text" inputmode="decimal" value="${esc(String(num(p.Estoque)).replace('.', ','))}"></div>
+      ${lideres.length ? `<div class="campo"><label for="ajR">Responsável *</label><select id="ajR"><option value="">Escolha…</option>${lideres.map(n => `<option>${esc(n)}</option>`).join('')}</select></div>` : ''}
+      <div class="campo largo"><label for="ajM">Motivo *</label><input id="ajM" type="text" placeholder="Ex.: contagem física, avaria, perda"></div></div>
+      <p class="suave peq">O ajuste fica no histórico (Baixas por cupom), com o saldo antes e depois.</p>
+      <div class="botoes"><button class="btn" id="ajC">Cancelar</button><button class="btn btn-oleo" id="ajS">Salvar ajuste</button></div>`, { aoFechar: () => { if (!feito) res(false); } });
+    $('#ajC', m.el).onclick = () => m.fechar();
+    $('#ajS', m.el).onclick = e => ocupado(e.currentTarget, async () => {
+      const resp = $('#ajR', m.el) ? $('#ajR', m.el).value : '';
+      if (lideres.length && !resp) throw new Error('Escolha o responsável.');
+      const j = await api('ajustarEstoque', { posto, codigo: p.Codigo, novo: String($('#ajN', m.el).value).replace(/\./g, '').replace(',', '.'), motivo: $('#ajM', m.el).value, responsavel: resp });
+      if (j.erro) throw new Error(j.erro);
+      p.Estoque = j.estoque;
+      if (posto === S.posto) aplicarEstoque([{ Codigo: j.codigo, Estoque: j.estoque }]);
+      toast('Estoque ajustado.'); feito = true; m.fechar(); res(true);
+    });
+  });
 }
 function escolherProduto({ titulo = 'Adicionar produto', permitirLivre = false } = {}) {
   return new Promise(res => {
@@ -1109,7 +1186,7 @@ function adicionarItemOS(p) {
 function desenharOS() {
   const o = S.osAtual, ed = osEditavel(o), c = D.cli[o.ClienteId], vs = o.ClienteId ? (D.veiPorCli[o.ClienteId] || []) : [];
   const v = D.vei[o.VeiculoId], m = v ? D.mod[v.ModeloId] : null, podePreco = pode('os_fechar');
-  V(`<div class="cab"><div><h1>${o.Id ? 'O.S. nº ' + esc(o.Numero) : 'Nova O.S.'}</h1><span class="suave peq">${esc(nomePosto(o.Posto))}${o.CupomNumero ? ' – cupom fiscal nº ' + esc(o.CupomNumero) : ''}${o.CriadoPor ? ' – aberta por ' + esc(o.CriadoPor) : ''}${o.FechadoPor ? ', fechada por ' + esc(o.FechadoPor) : ''}</span></div>${o.Id ? seloStatus(o.Status) : ''}</div>
+  V(`<div class="cab"><div><h1>${o.Id ? 'O.S. nº ' + esc(o.Numero) : 'Nova O.S.'}</h1><span class="suave peq">${esc(nomePosto(o.Posto))}${o.CupomNumero ? ' – cupom fiscal nº ' + esc(o.CupomNumero) : ''}${o.CriadoPor ? ' – aberta por ' + esc(o.CriadoPor) : ''}${o.FechadoPor ? ', fechada por ' + esc(o.FechadoPor) + (o.CaixaNome ? ' (caixa ' + esc(o.CaixaNome) + ')' : '') : ''}</span></div>${o.Id ? seloStatus(o.Status) : ''}</div>
     ${o.Status === 'EXCLUIDA' ? `<div class="parecidos"><b>O.S. excluída</b> em ${dataBR(o.ExcluidoEm)} por ${esc(o.ExcluidoPor)}. Motivo: ${esc(o.MotivoExclusao)}</div>` : ''}
     <div class="bloco"><h2>Cliente e veículo</h2>
       <div class="campo"><span class="rot">Cliente</span>${ed ? `<button class="btn" id="osCli" style="justify-content:flex-start">${c ? esc(c.Nome) : o.ClienteNome ? esc(o.ClienteNome) : 'Escolher cliente'}</button>` : `<b>${esc(o.ClienteNome)}</b>`}</div>
@@ -1288,6 +1365,26 @@ async function garantirSalva() {
   if (!osEditavel(o)) return true;
   return salvarOS(false);
 }
+/* Baixa da O.S.: qual caixa fechou (login de caixa compartilhado) e o nº do cupom emitido no B2Click. */
+function dadosBaixa(o) {
+  const caixas = listaNomes(postoAtual(o.Posto).Caixas);
+  return new Promise(res => {
+    let feito = false;
+    const m = abrirModal(o.Numero ? 'Fechar O.S. nº ' + o.Numero : 'Fechar O.S.', `<div class="campos">
+      <div class="campo largo"><label for="bxCx">Caixa que está fechando${caixas.length ? ' *' : ''}</label>${caixas.length
+        ? `<select id="bxCx"><option value="">Escolha…</option>${caixas.map(c => `<option${c === o.CaixaNome ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select>`
+        : `<input id="bxCx" type="text" value="${esc(o.CaixaNome || S.user.nome || '')}"><span class="suave peq">Cadastre os nomes dos caixas em Configurações › Dados do posto para virar lista.</span>`}</div>
+      <div class="campo largo"><label for="bxCp">Nº do cupom fiscal baixado no B2Click</label><input id="bxCp" type="text" inputmode="numeric" value="${esc(o.CupomNumero || '')}" ${o.CupomChave ? 'disabled' : ''}>
+      <span class="suave peq">Com o nº do cupom, os produtos saem do estoque do posto. Sem cupom, a O.S. fecha sem mexer no estoque.</span></div></div>
+      <div class="botoes" style="margin-top:1rem"><button class="btn" id="bxNao">Cancelar</button><button class="btn btn-oleo" id="bxOk">Fechar O.S.</button></div>`, { aoFechar: () => { if (!feito) res(null); } });
+    $('#bxNao', m.el).onclick = () => m.fechar();
+    $('#bxOk', m.el).onclick = () => {
+      const caixa = $('#bxCx', m.el).value.trim(), cupom = dig($('#bxCp', m.el).value);
+      if (caixas.length && !caixa) return toast('Escolha o caixa.', 'erro');
+      feito = true; m.fechar(); res({ caixa, cupom });
+    };
+  });
+}
 async function salvarOS(fechar) {
   const o = S.osAtual;
   if (!o.ClienteId) throw new Error('Escolha o cliente.');
@@ -1298,6 +1395,12 @@ async function salvarOS(fechar) {
     if (o.TrocaOleo && !o.VeiculoId) throw new Error('Escolha a placa para registrar a troca.');
     if (o.Itens.some(i => !num(i.preco)) && !await confirmar('Há item com preço zero. Fechar assim mesmo?', 'Fechar assim')) return false;
     if (o.TrocaOleo && !num(o.Km) && !await confirmar('O KM não foi informado. Fechar assim? O próximo lembrete fica só pela data.', 'Fechar sem KM')) return false;
+  }
+  if (fechar && o.Status !== 'FECHADA') {
+    const r = await dadosBaixa(o);
+    if (!r) return false;
+    o.CaixaNome = r.caixa;
+    if (r.cupom && !o.CupomChave) o.CupomNumero = r.cupom;
   }
   const envio = { ...o, Itens: o.Itens.map(i => ({ codigo: i.codigo, nome: i.nome, tipo: i.tipo, qtd: num(i.qtd), preco: num(i.preco) })) };
   const j = await api('salvarOS', { os: envio, fechar });
@@ -1649,22 +1752,33 @@ async function telaDashboard() {
 const CAMPOS_IMP = [
   ['Barras', 'Código de barras', /barra|ean|gtin/], ['Codigo', 'Código interno *', /^c[oó]d|refer|^ref\b|^id/], ['PrecoCompra', 'Preço de compra (custo)', /custo|compra/],
   ['PrecoVenda', 'Preço de venda', /venda|pre[cç]o|valor|vlr/], ['Estoque', 'Estoque', /estoque|saldo|qtd|quant/], ['Nome', 'Nome/descrição *', /descri|nome|produto/],
-  ['Unidade', 'Unidade', /^un|unid/], ['Grupo', 'Grupo/categoria', /grupo|categ|fam[ií]l|se[cç][aã]o/]
+  ['Unidade', 'Unidade', /^un|unid/], ['Grupo', 'Grupo', /grupo|fam[ií]l|se[cç][aã]o/], ['Categoria', 'Categoria', /categ|subgrupo|classe/]
 ];
 function telaImportar() {
   V(`<div class="cab"><h1>Importar produtos</h1></div>
     <div class="bloco"><p>Use o relatório de estoque do B2Click (Excel ou CSV) com código, código de barras, nome, preço de venda, preço de compra e estoque. É assim que entra estoque no app: cada importação atualiza os saldos, guarda o histórico e sinaliza as divergências.</p>
-    <input type="file" id="iArq" accept=".xlsx,.xls,.csv,.txt"></div><div id="iPasso"></div>`);
+    <p class="suave peq">Aceita planilha (Excel/CSV) ou o relatório em PDF. Com o padrão de colunas salvo, é só anexar, conferir e importar.</p>
+    ${listaNomes(postoAtual().Lideres).length ? `<div class="campo" style="max-width:24rem;margin-bottom:.7rem"><label for="iResp">Quem está importando (líder de pista / triagem) *</label><select id="iResp"><option value="">Escolha…</option>${listaNomes(postoAtual().Lideres).map(n => `<option${n === S.ultimoResp ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></div>` : ''}
+    <input type="file" id="iArq" accept=".xlsx,.xls,.csv,.txt,.pdf"></div><div id="iPasso"></div>`);
+  if ($('#iResp')) $('#iResp').onchange = () => { S.ultimoResp = $('#iResp').value; };
   $('#iArq').onchange = e => ocupado(null, async () => {
     const arq = e.target.files[0];
     if (!arq) return;
     await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+    if (/\.pdf$/i.test(arq.name)) {
+      const linhas = await lerPdfTabela(arq);
+      let hi = linhas.slice(0, 30).findIndex(r => r.filter(c => /[a-z]/i.test(c)).length >= 3);
+      if (hi < 0) hi = 0;
+      const n = Math.max(...linhas.map(r => r.length));
+      const cab = Array.from({ length: n }, (_, i) => String(linhas[hi][i] || 'Coluna ' + (i + 1)).trim());
+      return mapearImportacao(arq.name, cab, linhas.slice(hi + 1).filter(r => r.length >= 3));
+    }
     const buf = await arq.arrayBuffer();
     let wb;
     if (/\.(csv|txt)$/i.test(arq.name)) {
       let txt;
       try { txt = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (er) { txt = new TextDecoder('windows-1252').decode(buf); }
-      wb = window.XLSX.read(txt, { type: 'string' });
+      wb = window.XLSX.read(txt, { type: 'string', raw: true });
     } else wb = window.XLSX.read(buf, { type: 'array' });
     const ws = wb.Sheets[wb.SheetNames[0]];
     const linhas = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: true });
@@ -1677,11 +1791,14 @@ function telaImportar() {
 }
 function mapearImportacao(nomeArq, cab, dados) {
   const usados = new Set(), mapa = {};
-  CAMPOS_IMP.forEach(([k, , re]) => { const i = cab.findIndex((c, j) => !usados.has(j) && re.test(norm(c))); if (i >= 0) { mapa[k] = i; usados.add(i); } });
+  let salvo = null; try { salvo = JSON.parse(S.geral.IMPORT_MAPA || 'null'); } catch (e) {}
+  if (salvo && Object.keys(salvo).length) {
+    Object.entries(salvo).forEach(([k, v]) => { const i = typeof v === 'number' ? v : cab.findIndex(c => norm(c) === norm(v)); if (i >= 0 && i < cab.length) mapa[k] = i; });
+  } else CAMPOS_IMP.forEach(([k, , re]) => { const i = cab.findIndex((c, j) => !usados.has(j) && re.test(norm(c))); if (i >= 0) { mapa[k] = i; usados.add(i); } });
   const sel = { modo: 'atualizar', postos: [S.posto] };
   const desenhar = () => {
     const linhasMap = dados.slice(0, 5).map(r => CAMPOS_IMP.map(([k]) => mapa[k] !== undefined ? r[mapa[k]] : ''));
-    $('#iPasso').innerHTML = `<div class="bloco"><h2>Colunas do arquivo</h2><p class="suave peq">${esc(nomeArq)}: ${dados.length} linha(s). Confira qual coluna é cada informação.</p>
+    $('#iPasso').innerHTML = `<div class="bloco"><h2>Colunas do arquivo</h2><p class="suave peq">${esc(nomeArq)}: ${dados.length} linha(s). ${salvo ? '<b>Usando o padrão de colunas salvo.</b> ' : ''}Confira qual coluna é cada informação.</p>
       <div class="campos">${CAMPOS_IMP.map(([k, r]) => `<div class="campo"><label>${r}</label><select data-k="${k}"><option value="">(não importar)</option>${cab.map((c, i) => `<option value="${i}"${mapa[k] === i ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></div>`).join('')}</div>
       <h3 style="margin-top:1rem">Prévia</h3>${tabela(CAMPOS_IMP.map(c => c[1].replace(' *', '')), linhasMap.map(l => l.map(x => String(x))))}</div>
       <div class="bloco"><h2>Para quais postos</h2>
@@ -1690,6 +1807,7 @@ function mapearImportacao(nomeArq, cab, dados) {
         <h3 style="margin-top:1rem">Como importar</h3>
         <label class="check"><input type="radio" name="iModo" value="atualizar" ${sel.modo === 'atualizar' ? 'checked' : ''}><span>Atualizar e acrescentar (não apaga nada)</span></label>
         <label class="check"><input type="radio" name="iModo" value="substituir" ${sel.modo === 'substituir' ? 'checked' : ''}><span>Substituir a lista (apaga do posto os produtos que não vieram no arquivo)</span></label>
+        <label class="check" style="margin-top:.8rem"><input type="checkbox" id="iPad"><span>Salvar estas colunas como padrão (pela posição da coluna no arquivo)</span></label>
         <div class="botoes" style="margin-top:1rem"><button class="btn btn-oleo" id="iGo">Importar ${dados.length} produto(s)</button></div><p id="iProg" class="suave peq"></p></div>`;
     $$('#iPasso [data-k]').forEach(s => { s.onchange = () => { if (s.value === '') delete mapa[s.dataset.k]; else mapa[s.dataset.k] = +s.value; desenhar(); }; });
     $$('#iPasso [name=iPo]').forEach(r => { r.onchange = () => { sel.alguns = r.value === 'alguns'; sel.postos = r.value === 'este' ? [S.posto] : r.value === 'todos' ? S.postos.map(p => p.Codigo) : sel.postos; desenhar(); }; });
@@ -1698,13 +1816,16 @@ function mapearImportacao(nomeArq, cab, dados) {
     $('#iGo').onclick = e => ocupado(e.currentTarget, async () => {
       if (mapa.Codigo === undefined || mapa.Nome === undefined) throw new Error('Escolha as colunas de código interno e de nome.');
       if (!sel.postos.length) throw new Error('Escolha pelo menos um posto.');
+      const resp = $('#iResp') ? $('#iResp').value : '';
+      if ($('#iResp') && !resp) throw new Error('Escolha quem está importando (líder de pista / triagem).');
+      if ($('#iPad').checked) { const jm = await api('salvarMapaImport', { mapa }); if (jm.erro) throw new Error(jm.erro); S.geral.IMPORT_MAPA = JSON.stringify(mapa); ls('to_geral', S.geral); }
       if (sel.modo === 'substituir' && !await confirmar(`Os produtos de ${sel.postos.length} posto(s) que não estão no arquivo serão apagados do app. Continuar?`, 'Substituir')) return;
       const linhas = dados.map(r => { const o = {}; Object.entries(mapa).forEach(([k, i]) => { o[k] = r[i]; }); return o; }).filter(o => String(o.Codigo ?? '').trim() !== '');
       const lote = Date.now().toString(36), tam = 700;
       let ins = 0, upd = 0, rem = 0, resumo = null;
       for (let i = 0; i < linhas.length; i += tam) {
         $('#iProg').textContent = `Enviando ${Math.min(i + tam, linhas.length)} de ${linhas.length}…`;
-        const j = await api('importarProdutos', { postos: sel.postos, linhas: linhas.slice(i, i + tam), modo: sel.modo, lote, ultimo: i + tam >= linhas.length, arquivo: nomeArq, totalLinhas: linhas.length });
+        const j = await api('importarProdutos', { postos: sel.postos, linhas: linhas.slice(i, i + tam), modo: sel.modo, lote, ultimo: i + tam >= linhas.length, arquivo: nomeArq, totalLinhas: linhas.length, responsavel: resp });
         if (j.erro) throw new Error(j.erro);
         ins += j.inseridos; upd += j.atualizados; rem += j.removidos;
         if (j.resumo) resumo = j.resumo;
@@ -1764,7 +1885,7 @@ async function telaConfig() {
   if (j.erro) throw new Error(j.erro);
   const W = { postos: j.postos.map(p => ({ ...p })), geral: { ...j.geral }, sel: (j.postos[0] || {}).Codigo, mudou: false, verChave: false };
   const SEC = {
-    dados: { t: 'Dados do posto', c: [['Nome', 'Nome fantasia do posto'], ['CNPJ', 'CNPJ'], ['Endereco', 'Endereço (aparece na tela de descanso e nas O.S.)'], ['Ativo', 'Situação', 'sel', ['SIM', 'NAO']], ['Emails', 'E-mails do posto (separe por vírgula)'], ['EmailsGerente', 'E-mails do gerente']], copiar: ['Emails', 'EmailsGerente'] },
+    dados: { t: 'Dados do posto', c: [['Nome', 'Nome fantasia do posto'], ['CodigoPosto', 'Código do posto (ex.: 16)'], ['CNPJ', 'CNPJ'], ['Endereco', 'Endereço (aparece na tela de descanso e nas O.S.)'], ['Ativo', 'Situação', 'sel', ['SIM', 'NAO']], ['Emails', 'E-mails do posto (separe por vírgula)'], ['EmailsGerente', 'E-mails do gerente'], ['Caixas', 'Caixas – nomes para escolher ao fechar a O.S. (separe por vírgula)'], ['Lideres', 'Líderes de pista e triagem – nomes para escolher na importação e no ajuste de estoque (separe por vírgula)']], copiar: ['Emails', 'EmailsGerente', 'Caixas', 'Lideres'] },
     avisos: { t: 'Avisos e mensagens', c: [['TeamsWebhook', 'Link do webhook do Teams (Power Automate)'], ['MsgTroca', 'Mensagem do lembrete de troca', 'area'], ['MsgAniversario', 'Mensagem de aniversário', 'area'], ['MsgPosVenda', 'Mensagem de pós-venda', 'area'], ['MsgOS', 'Mensagem da O.S. no WhatsApp', 'area']], copiar: ['TeamsWebhook', 'MsgTroca', 'MsgAniversario', 'MsgPosVenda', 'MsgOS'] },
     regras: { t: 'Regras', c: [['VenderSemEstoque', 'Vender sem estoque', 'sel', ['SIM', 'NAO']], ['ImpressaoPadrao', 'Onde imprimir por padrão', 'impr'], ['ImpressoraPadrao', 'Formato padrão', 'sel', ['80mm', 'A4']], ['AntecedenciaDias', 'Avisar a troca quantos dias antes'], ['DiasPosVenda', 'Pós-venda quantos dias depois da O.S.'], ['IntervaloKm', 'Troca padrão a cada (km)'], ['IntervaloDias', 'Troca padrão a cada (dias)']], copiar: ['VenderSemEstoque', 'ImpressaoPadrao', 'ImpressoraPadrao', 'AntecedenciaDias', 'DiasPosVenda', 'IntervaloKm', 'IntervaloDias'] }
   };
@@ -1779,7 +1900,7 @@ async function telaConfig() {
       return `<div class="campo largo"><label>${esc(r)}</label><select data-cfg="${c}">${ops.map(([k, n]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select><span class="suave peq">Fica destacado no botão Imprimir. Na hora, dá para escolher outro agente, o aparelho ou PDF.</span></div>`;
     }
     if (t === 'area') return `<div class="campo largo"><label>${esc(r)}</label><textarea data-cfg="${c}" placeholder="${esc(PAD[c] || '')}">${esc(v)}</textarea></div>`;
-    return `<div class="campo${/Webhook|Emails|Endereco/.test(c) ? ' largo' : ''}"><label>${esc(r)}</label><input type="text" data-cfg="${c}" value="${esc(c === 'CNPJ' ? fmtDoc(v) : v)}"${c === 'CNPJ' ? ' inputmode="numeric"' : ''}>${c === 'Endereco' && v ? `<a class="suave peq" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v)}">Ver no mapa</a>` : ''}</div>`;
+    return `<div class="campo${/Webhook|Emails|Endereco|Caixas|Lideres/.test(c) ? ' largo' : ''}"><label>${esc(r)}</label><input type="text" data-cfg="${c}" value="${esc(c === 'CNPJ' ? fmtDoc(v) : v)}"${c === 'CNPJ' ? ' inputmode="numeric"' : ''}>${c === 'Endereco' && v ? `<a class="suave peq" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v)}">Ver no mapa</a>` : ''}</div>`;
   };
   const desenhar = () => {
     const p = W.postos.find(x => x.Codigo === W.sel);
@@ -1912,6 +2033,36 @@ function mostrarDescanso() {
 /* ============ CUPOM FISCAL EM PDF ============ */
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const PDFJS_WORKER = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+/* Relatório em PDF -> linhas e colunas (separa as colunas pelos espaços maiores entre os textos). */
+async function lerPdfTabela(arq) {
+  await carregarScript(PDFJS);
+  const lib = window.pdfjsLib;
+  lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+  const pdf = await lib.getDocument({ data: new Uint8Array(await arq.arrayBuffer()) }).promise;
+  const linhas = [];
+  for (let n = 1; n <= pdf.numPages; n++) {
+    const tc = await (await pdf.getPage(n)).getTextContent();
+    const grupos = [];
+    tc.items.forEach(it => {
+      if (!it.str || !it.str.trim()) return;
+      const y = it.transform[5];
+      let g = grupos.find(gr => Math.abs(gr.y - y) < 2.5);
+      if (!g) { g = { y, itens: [] }; grupos.push(g); }
+      g.itens.push({ x: it.transform[4], s: it.str, w: it.width, h: Math.abs(it.transform[0]) || 8 });
+    });
+    grupos.sort((a, b) => b.y - a.y).forEach(g => {
+      g.itens.sort((a, b) => a.x - b.x);
+      const cel = []; let fim = null;
+      g.itens.forEach(it => {
+        if (fim !== null && it.x - fim < it.h * 0.9 && cel.length) cel[cel.length - 1] += (it.x - fim > 1 ? ' ' : '') + it.s;
+        else cel.push(it.s);
+        fim = it.x + it.w;
+      });
+      linhas.push(cel.map(c => c.trim()));
+    });
+  }
+  return linhas;
+}
 async function lerPdfLinhas(arq) {
   await carregarScript(PDFJS);
   const lib = window.pdfjsLib;

@@ -61,7 +61,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .topo .marca small{display:block;font-size:.72rem;opacity:.85;font-weight:500;font-family:var(--fonte)}
 .topo .marca span.txt{display:flex;flex-direction:column;align-items:flex-start;line-height:1.05}
 .topo .marca b{font-family:var(--fonte-c);font-size:1.2rem;letter-spacing:.02em;white-space:nowrap}
-@media (max-width:440px){.topo.multi .marca span.txt{display:none}.topo .marca b{font-size:1.05rem}}
+@media (max-width:440px){.topo.multi .marca span.txt b{display:none}.topo.multi .marca span.txt small{max-width:7.5rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.topo .marca b{font-size:1.05rem}}
 .topo select{margin-left:auto;min-width:0;max-width:40vw;background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.35);border-radius:8px;padding:.35rem .5rem}
 .topo .sync{background:none;border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:8px;width:2.4rem;height:2.2rem;cursor:pointer;font-size:1.1rem}
 .topo .sync.off{border-color:var(--alerta);color:#FFB4B4}
@@ -189,6 +189,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--oleo);outline:2px sol
 .b2-linha{display:grid;grid-template-columns:minmax(7rem,30%) 1fr auto;gap:.6rem;align-items:center;padding:.4rem 0;border-bottom:1px solid #eee}
 .b2-linha .rot{margin:0}
 .b2-val{font-weight:600;word-break:break-word}
+.filtros{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:.5rem}.filtros .campo{margin:0}
 @media (prefers-reduced-motion:no-preference){.descanso img{animation:surge .6s ease-out}@keyframes surge{from{opacity:0;transform:scale(.97)}to{opacity:1;transform:none}}}
 
 /* login */
