@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.4.0 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.5.0 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.4.0';
+const VERSAO_APP = '1.5.0';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -986,7 +986,7 @@ function escanear() {
 /* ============ ORDENS DE SERVIÇO ============ */
 function seloStatus(s) { return s === 'FECHADA' ? '<span class="selo ok">fechada</span>' : s === 'EXCLUIDA' ? '<span class="selo alerta">excluída</span>' : '<span class="selo oleo">aberta</span>'; }
 function linhaOS(o) {
-  return `<li><button class="linha-btn" data-osid="${esc(o.Id)}">${o.Placa ? placaHtml(o.Placa) : ''}<span class="cresce"><span class="tit">Nº ${esc(o.Numero)} – ${esc(o.ClienteNome || '')}</span><span class="sub">${dataBR(o.Data)}${o.Posto !== S.posto ? ' – ' + esc(nomePosto(o.Posto)) : ''}</span></span><span style="text-align:right"><b class="num">${brl(o.Total)}</b><br>${seloStatus(o.Status)}</span></button></li>`;
+  return `<li><button class="linha-btn" data-osid="${esc(o.Id)}">${o.Placa ? placaHtml(o.Placa) : ''}<span class="cresce"><span class="tit">Nº ${esc(o.Numero)} – ${esc(o.ClienteNome || '')}</span><span class="sub">${dataBR(o.Data)}${o.Posto !== S.posto ? ' – ' + esc(nomePosto(o.Posto)) : ''}</span></span><span style="text-align:right"><b class="num">${brl(o.Total)}</b><br>${seloStatus(o.Status)}${o.Status === 'ABERTA' || (o.Status !== 'EXCLUIDA' && !o.CupomNumero) ? (o.LancadaEm ? ' <span class="selo ok">no B2Click</span>' : ' <span class="selo">a lançar</span>') : ''}</span></button></li>`;
 }
 function ligarOS(el) { $$('[data-osid]', el).forEach(b => { b.onclick = () => ir('os-form', { id: b.dataset.osid }); }); }
 function presetDeBusca(q) {
@@ -1125,9 +1125,11 @@ function desenharOS() {
       <div id="osItens"></div>
       <div class="totais"><span class="suave">Subtotal <span class="num" id="osSub"></span></span>${podePreco && ed ? `<label class="suave">Desconto R$ <input id="osDesc" type="text" inputmode="decimal" value="${o.Desconto ? esc(String(o.Desconto).replace('.', ',')) : ''}" style="width:7rem;min-height:2.3rem"></label>` : o.Desconto ? `<span class="suave">Desconto <span class="num">${brl(o.Desconto)}</span></span>` : ''}<span>Total <span class="total num" id="osTot"></span></span></div></div>
     <div class="bloco"><div class="campo"><label for="osObs">Observação</label><textarea id="osObs" ${ed ? '' : 'disabled'}>${esc(o.Obs)}</textarea></div></div>
+    <div id="osB2"></div>
     <div class="barra-acoes" id="osAcoes"></div>`);
   desenharItensOS();
   desenharAcoesOS();
+  desenharLancarB2();
   if (!ed) return;
   const sujo = () => { S.osSujo = true; };
   $('#osKm').oninput = () => { o.Km = dig($('#osKm').value); sujo(); };
@@ -1206,6 +1208,49 @@ function atualizarTotais() {
   const sub = o.Itens.reduce((s, i) => s + arred(num(i.qtd) * num(i.preco)), 0);
   o.Subtotal = arred(sub); o.Total = arred(sub - num(o.Desconto));
   if ($('#osSub')) { $('#osSub').textContent = brl(o.Subtotal); $('#osTot').textContent = brl(o.Total); }
+}
+/* ============ LANÇAR NO B2CLICK (caixa) ============ */
+async function copiarTexto(t) {
+  t = String(t ?? '');
+  try { await navigator.clipboard.writeText(t); }
+  catch (e) { const a = document.createElement('textarea'); a.value = t; a.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove(); }
+  toast('Copiado: ' + (t.length > 40 ? t.slice(0, 40) + '…' : t));
+}
+function desenharLancarB2() {
+  const el = $('#osB2'); if (!el) return;
+  const o = S.osAtual;
+  if (!o.Id || o.Status === 'EXCLUIDA' || !pode('os_fechar')) { el.innerHTML = ''; return; }
+  const c = D.cli[o.ClienteId] || {};
+  const doc = dig(c.Documento);
+  const ref = ['PLACA ' + normPlaca(o.Placa), 'OS ' + o.Numero, num(o.Km) ? 'KM ' + dig(o.Km) : ''].filter(x => !/^PLACA $/.test(x) && x).join(' ');
+  const linhas = [
+    ['Placa', normPlaca(o.Placa)], ['KM', num(o.Km) ? dig(o.Km) : ''], ['Cód. cliente B2Click', c.Codigo || ''],
+    ['Nome', c.Nome || o.ClienteNome || ''], [doc.length === 14 ? 'CNPJ' : 'CPF', doc], ['Obs. da O.S.', o.Obs || ''],
+    ['Texto para a observação do cupom', ref]
+  ];
+  const ln = ([r, v], i) => `<div class="b2-linha"><span class="rot">${esc(r)}</span><span class="b2-val">${v ? esc(v) : '<span class="suave">—</span>'}</span>${v ? `<button class="btn btn-peq" data-cp="${i}">Copiar</button>` : '<span></span>'}</div>`;
+  const itens = (o.Itens || []).filter(i => i.codigo || i.nome);
+  el.innerHTML = `<div class="bloco b2"><div class="cab"><h2>Lançar no B2Click</h2>${o.LancadaEm ? '<span class="selo ok">lançada</span>' : '<span class="selo">a lançar</span>'}</div>
+    <p class="suave peq" style="margin-top:0">Toque em Copiar e cole no B2Click. ${o.Id && S.osSujo ? '<b>Salve a O.S. antes, para copiar os dados atualizados.</b>' : ''}</p>
+    ${linhas.map(ln).join('')}
+    ${itens.length ? `<h3 style="margin:.8rem 0 .3rem">Produtos</h3>${itens.map((i, k) => `<div class="b2-linha"><span class="rot">${esc(i.nome)}</span><span class="b2-val num">${i.codigo ? 'cód. ' + esc(i.codigo) : 'sem código'} · qtd ${fmtQtd(i.qtd)}</span>${i.codigo ? `<span class="botoes" style="flex-wrap:nowrap"><button class="btn btn-peq" data-ci="${k}">Cód.</button><button class="btn btn-peq" data-cq="${k}">Qtd</button></span>` : '<span></span>'}</div>`).join('')}` : ''}
+    <div class="botoes" style="margin-top:.8rem">${o.LancadaEm
+      ? `<span class="suave peq" style="align-self:center">Lançada no B2Click por ${esc(o.LancadaPor)} em ${dataBR(o.LancadaEm)} ${esc(String(o.LancadaEm).slice(11, 16))}.</span><button class="btn btn-peq" id="b2Des">Desmarcar</button>`
+      : '<button class="btn btn-oleo" id="b2Marca">Marcar como lançada no B2Click</button>'}</div></div>`;
+  $$('[data-cp]', el).forEach(b => { b.onclick = () => copiarTexto(linhas[+b.dataset.cp][1]); });
+  $$('[data-ci]', el).forEach(b => { b.onclick = () => copiarTexto(itens[+b.dataset.ci].codigo); });
+  $$('[data-cq]', el).forEach(b => { b.onclick = () => copiarTexto(String(num(itens[+b.dataset.cq].qtd)).replace('.', ',')); });
+  const marcar = desfazer => async e => ocupado(e.currentTarget, async () => {
+    if (!desfazer && !await garantirSalva()) return;
+    if (desfazer && !await confirmar('Desmarcar: a O.S. volta para "a lançar".', 'Desmarcar')) return;
+    const j = await api('marcarLancada', { id: S.osAtual.Id, desfazer: !!desfazer });
+    if (j.erro) throw new Error(j.erro);
+    S.osAtual.LancadaEm = j.os.LancadaEm; S.osAtual.LancadaPor = j.os.LancadaPor;
+    toast(desfazer ? 'O.S. voltou para "a lançar".' : 'O.S. marcada como lançada no B2Click.');
+    desenharLancarB2();
+  });
+  if ($('#b2Marca', el)) $('#b2Marca', el).onclick = marcar(false);
+  if ($('#b2Des', el)) $('#b2Des', el).onclick = marcar(true);
 }
 function desenharAcoesOS() {
   const o = S.osAtual, ed = osEditavel(o), b = [];
