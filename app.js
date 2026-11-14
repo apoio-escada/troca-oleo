@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.3.0 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.4.0 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.3.0';
+const VERSAO_APP = '1.4.0';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -924,11 +924,11 @@ function telaProdutos() {
   const compra = pode('ver_compra');
   V(`<div class="cab"><h1>Produtos</h1>${pode('importar') ? '<button class="btn" id="pImp">Importar</button>' : ''}</div>
     <div class="botoes" style="flex-wrap:nowrap"><input type="search" id="pq" placeholder="Código de barras, código ou nome" autocomplete="off"><button class="btn" id="pScan" aria-label="Ler código de barras pela câmera">📷</button></div>
-    <p class="suave peq">${D.produtos.length} produtos de ${esc(nomePosto())}. Preço e estoque da última importação.</p>
+    <p class="suave peq">${D.produtos.length} produtos da rede (${D.produtos.filter(p => !p.Rede).length} importados para ${esc(nomePosto())}). Preço e estoque da última importação de cada posto; produtos só da rede aparecem com estoque 0 aqui.</p>
     <div class="bloco"><ul class="lista" id="pLista"></ul></div>`);
   const mostrar = () => {
     const l = buscarProdutos($('#pq').value, 80);
-    $('#pLista').innerHTML = l.length ? l.map(p => `<li style="display:flex;justify-content:space-between;gap:.8rem;padding:.6rem .2rem"><span style="min-width:0"><b>${esc(p.Nome)}</b><br><span class="suave peq">Cód. ${esc(p.Codigo)}${p.Barras ? ' – barras ' + esc(p.Barras) : ''}${p.Grupo ? ' – ' + esc(p.Grupo) : ''}</span></span><span style="text-align:right;white-space:nowrap" class="num"><b>${brl(p.PrecoVenda)}</b>${compra && p.PrecoCompra !== undefined ? `<br><span class="suave peq">compra ${brl(p.PrecoCompra)}</span>` : ''}<br><span class="peq ${num(p.Estoque) <= 0 ? 'erro-campo' : 'suave'}">estoque ${fmtQtd(p.Estoque)} ${esc(p.Unidade || '')}</span></span></li>`).join('') : `<li class="vazio">${D.produtos.length ? 'Nada encontrado.' : 'Nenhum produto importado para este posto ainda.'}</li>`;
+    $('#pLista').innerHTML = l.length ? l.map(p => `<li style="display:flex;justify-content:space-between;gap:.8rem;padding:.6rem .2rem"><span style="min-width:0"><b>${esc(p.Nome)}</b><br><span class="suave peq">Cód. ${esc(p.Codigo)}${p.Barras ? ' – barras ' + esc(p.Barras) : ''}${p.Grupo ? ' – ' + esc(p.Grupo) : ''}${p.Rede ? ' – cadastro da rede (' + esc(nomePosto(p.PostoCadastro)) + '), sem estoque importado aqui' : ''}</span></span><span style="text-align:right;white-space:nowrap" class="num"><b>${brl(p.PrecoVenda)}</b>${compra && p.PrecoCompra !== undefined ? `<br><span class="suave peq">compra ${brl(p.PrecoCompra)}</span>` : ''}<br><span class="peq ${num(p.Estoque) <= 0 ? 'erro-campo' : 'suave'}">estoque ${fmtQtd(p.Estoque)} ${esc(p.Unidade || '')}</span></span></li>`).join('') : `<li class="vazio">${D.produtos.length ? 'Nada encontrado.' : 'Nenhum produto importado para este posto ainda.'}</li>`;
   };
   $('#pq').oninput = debounce(mostrar, 140);
   $('#pScan').onclick = async () => { const c = await escanear(); if (c) { $('#pq').value = c; mostrar(); } };
@@ -949,7 +949,7 @@ function escolherProduto({ titulo = 'Adicionar produto', permitirLivre = false }
     const inp = $('#pq2', m.el);
     inp.oninput = debounce(mostrar, 120);
     inp.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); const ex = produtoExato(inp.value); if (ex) return fim(ex); const l = mostrar(); if (l.length === 1) fim(l[0]); } };
-    $('#pS2', m.el).onclick = async () => { const c = await escanear(); if (!c) return; const p = produtoExato(c); if (p) fim(p); else { inp.value = c; mostrar(); toast('O código ' + c + ' não está no cadastro deste posto.', 'erro'); } };
+    $('#pS2', m.el).onclick = async () => { const c = await escanear(); if (!c) return; const p = produtoExato(c); if (p) fim(p); else { inp.value = c; mostrar(); toast('O código ' + c + ' não está no cadastro da rede.', 'erro'); } };
     if (permitirLivre) $('#pL2', m.el).onclick = async () => { const n = await pedirTexto('Produto fora do cadastro', 'Nome do produto', inp.value); if (n) fim({ Codigo: '', Nome: n, PrecoVenda: 0, Estoque: 0, _livre: true }); };
     mostrar();
   });
@@ -1155,7 +1155,7 @@ function desenharOS() {
     const q = busca.value.trim();
     if (q.length < 2) { $('#osRes').innerHTML = ''; return []; }
     const l = buscarProdutos(q, 12);
-    $('#osRes').innerHTML = l.length ? `<div class="resultados">${l.map((p, i) => `<button data-i="${i}"><span><b>${esc(p.Nome)}</b><br><span class="suave peq">${esc(p.Codigo)}</span></span><span class="num" style="text-align:right">${brl(p.PrecoVenda)}<br><span class="peq ${num(p.Estoque) <= 0 ? 'erro-campo' : 'suave'}">est. ${fmtQtd(p.Estoque)}</span></span></button>`).join('')}</div>` : '<p class="suave peq">Nada encontrado neste posto.</p>';
+    $('#osRes').innerHTML = l.length ? `<div class="resultados">${l.map((p, i) => `<button data-i="${i}"><span><b>${esc(p.Nome)}</b><br><span class="suave peq">${esc(p.Codigo)}</span></span><span class="num" style="text-align:right">${brl(p.PrecoVenda)}<br><span class="peq ${num(p.Estoque) <= 0 ? 'erro-campo' : 'suave'}">est. ${fmtQtd(p.Estoque)}</span></span></button>`).join('')}</div>` : '<p class="suave peq">Nada encontrado no cadastro da rede.</p>';
     $$('#osRes [data-i]').forEach(b => { b.onclick = () => { adicionarItemOS(l[+b.dataset.i]); busca.value = ''; $('#osRes').innerHTML = ''; busca.focus(); }; });
     return l;
   };
@@ -1312,6 +1312,8 @@ function escolherCliente() {
 /* ============ IMPRESSÃO E ENVIO ============ */
 const CSS_80 = '@page{size:80mm auto;margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:80mm;padding:3mm 4mm 6mm;font:12px/1.35 Arial,Helvetica,sans-serif;color:#000}h1{font-size:15px;margin:0;text-align:center}.c{text-align:center}.r{text-align:right}p{margin:2px 0}hr{border:0;border-top:1px dashed #000;margin:6px 0}table{width:100%;border-collapse:collapse}td{vertical-align:top;padding:1px 0}.g{font-size:16px;font-weight:bold}.peq{font-size:10px}';
 const CSS_A4 = '@page{size:A4;margin:14mm}*{box-sizing:border-box}body{margin:0;font:12px/1.45 Arial,Helvetica,sans-serif;color:#111}h1{font-size:20px;margin:0}h2{font-size:14px;margin:16px 0 6px;border-bottom:2px solid #FFC20E;padding-bottom:3px}table{width:100%;border-collapse:collapse}th,td{padding:5px 6px;border-bottom:1px solid #ccc;text-align:left;vertical-align:top}th{background:#f1f1ee;font-size:11px}.r{text-align:right}.sem td{border:0}.g{font-size:16px;font-weight:bold}.peq{font-size:10px;color:#555}';
+const idPosto80 = p => [p.CNPJ && dig(p.CNPJ) ? 'CNPJ ' + fmtDoc(p.CNPJ) : '', p.Endereco || ''].filter(Boolean).map(t => `<p class="c peq">${esc(t)}</p>`).join('');
+const idPostoA4 = p => [p.CNPJ && dig(p.CNPJ) ? 'CNPJ ' + fmtDoc(p.CNPJ) : '', p.Endereco || ''].filter(Boolean).map(esc).join('<br>');
 function htmlDoc(corpo, fmt, titulo) { return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(titulo)}</title><style>${fmt === '80mm' ? CSS_80 : CSS_A4}</style></head><body>${corpo}</body></html>`; }
 function docOS(o, fmt) {
   const p = { ...postoAtual(o.Posto), Nome: nomePosto(o.Posto) }, c = D.cli[o.ClienteId] || { Nome: o.ClienteNome }, v = D.vei[o.VeiculoId], m = v ? D.mod[v.ModeloId] : null;
@@ -1320,13 +1322,13 @@ function docOS(o, fmt) {
   const prox = v && v.ProximaData && o.TrocaOleo && o.Status === 'FECHADA' && v.UltimaTrocaData === o.Data ? `Próxima troca: ${dataBR(v.ProximaData)}${num(v.ProximaKm) ? ' ou ' + fmtKm(v.ProximaKm) : ''}, o que vier primeiro.` : '';
   const tit = 'O.S. nº ' + o.Numero;
   if (fmt === '80mm') {
-    return htmlDoc(`<h1>${esc(p.Nome)}</h1><p class="c">ORDEM DE SERVIÇO Nº ${esc(o.Numero)}</p><p class="c">${dataBR(o.Data)}${st ? ' – ' + st : ''}</p>${cupom ? `<p class="c">${esc(cupom)}</p>` : ''}<hr>
+    return htmlDoc(`<h1>${esc(p.Nome)}</h1>${idPosto80(p)}<p class="c">ORDEM DE SERVIÇO Nº ${esc(o.Numero)}</p><p class="c">${dataBR(o.Data)}${st ? ' – ' + st : ''}</p>${cupom ? `<p class="c">${esc(cupom)}</p>` : ''}<hr>
       <p><b>Cliente:</b> ${esc(c.Nome)}</p>${o.Placa ? `<p><b>Placa:</b> ${esc(fmtPlaca(o.Placa))}${m ? ' – ' + esc(nomeModelo(m)) : ''}</p>` : ''}${num(o.Km) ? `<p><b>KM:</b> ${fmtKm(o.Km)}</p>` : ''}<hr>
       <table>${o.Itens.map(i => `<tr><td colspan="2">${esc(i.nome)}</td></tr><tr><td class="peq">${fmtQtd(i.qtd)} x ${brl(i.preco)}</td><td class="r">${brl(num(i.qtd) * num(i.preco))}</td></tr>`).join('')}</table><hr>
       <table><tr><td>Subtotal</td><td class="r">${brl(o.Subtotal)}</td></tr>${num(o.Desconto) ? `<tr><td>Desconto</td><td class="r">-${brl(o.Desconto)}</td></tr>` : ''}<tr><td class="g">TOTAL</td><td class="r g">${brl(o.Total)}</td></tr></table>
       ${prox ? `<hr><p class="c"><b>${esc(prox)}</b></p>` : ''}${o.Obs ? `<hr><p>${esc(o.Obs)}</p>` : ''}<hr><p class="c">Obrigado pela preferência!</p><p class="c peq">Documento sem valor fiscal.</p>`, fmt, tit);
   }
-  return htmlDoc(`<table class="sem" style="border-bottom:3px solid #4A1B6D"><tr><td><h1>${esc(p.Nome)}</h1><span class="peq">Troca de óleo</span></td><td class="r"><span class="g">O.S. nº ${esc(o.Numero)}</span><br>${dataBR(o.Data)}${cupom ? '<br>' + esc(cupom) : ''}${st ? '<br><b>' + st + '</b>' : ''}</td></tr></table>
+  return htmlDoc(`<table class="sem" style="border-bottom:3px solid #4A1B6D"><tr><td><h1>${esc(p.Nome)}</h1><span class="peq">${idPostoA4(p) || 'Troca de óleo'}</span></td><td class="r"><span class="g">O.S. nº ${esc(o.Numero)}</span><br>${dataBR(o.Data)}${cupom ? '<br>' + esc(cupom) : ''}${st ? '<br><b>' + st + '</b>' : ''}</td></tr></table>
     <h2>Cliente</h2><table><tr><td><b>${esc(c.Nome)}</b>${c.Fantasia ? '<br>' + esc(c.Fantasia) : ''}</td><td>${c.Documento ? (dig(c.Documento).length === 14 ? 'CNPJ ' : 'CPF ') + esc(fmtDoc(c.Documento)) : ''}</td><td>${esc(fmtFone(c.WhatsApp || c.Fone))}${c.Email ? '<br>' + esc(c.Email) : ''}</td></tr></table>
     <h2>Veículo</h2><table><tr><td>Placa <b>${esc(fmtPlaca(o.Placa))}</b></td><td>${esc(nomeModelo(m))}${m ? ' – ' + esc(m.Tipo) : ''}</td><td>KM ${num(o.Km) ? fmtKm(o.Km) : 'não informado'}</td></tr></table>
     <h2>Itens</h2><table><tr><th>Código</th><th>Descrição</th><th class="r">Qtd</th><th class="r">Preço</th><th class="r">Total</th></tr>
@@ -1685,7 +1687,7 @@ async function telaConfig() {
   if (j.erro) throw new Error(j.erro);
   const W = { postos: j.postos.map(p => ({ ...p })), geral: { ...j.geral }, sel: (j.postos[0] || {}).Codigo, mudou: false, verChave: false };
   const SEC = {
-    dados: { t: 'Dados do posto', c: [['Nome', 'Nome do posto'], ['Ativo', 'Situação', 'sel', ['SIM', 'NAO']], ['Emails', 'E-mails do posto (separe por vírgula)'], ['EmailsGerente', 'E-mails do gerente']], copiar: ['Emails', 'EmailsGerente'] },
+    dados: { t: 'Dados do posto', c: [['Nome', 'Nome fantasia do posto'], ['CNPJ', 'CNPJ'], ['Endereco', 'Endereço (aparece na tela de descanso e nas O.S.)'], ['Ativo', 'Situação', 'sel', ['SIM', 'NAO']], ['Emails', 'E-mails do posto (separe por vírgula)'], ['EmailsGerente', 'E-mails do gerente']], copiar: ['Emails', 'EmailsGerente'] },
     avisos: { t: 'Avisos e mensagens', c: [['TeamsWebhook', 'Link do webhook do Teams (Power Automate)'], ['MsgTroca', 'Mensagem do lembrete de troca', 'area'], ['MsgAniversario', 'Mensagem de aniversário', 'area'], ['MsgPosVenda', 'Mensagem de pós-venda', 'area'], ['MsgOS', 'Mensagem da O.S. no WhatsApp', 'area']], copiar: ['TeamsWebhook', 'MsgTroca', 'MsgAniversario', 'MsgPosVenda', 'MsgOS'] },
     regras: { t: 'Regras', c: [['VenderSemEstoque', 'Vender sem estoque', 'sel', ['SIM', 'NAO']], ['ImpressoraPadrao', 'Impressora padrão do balcão', 'sel', ['80mm', 'A4']], ['AntecedenciaDias', 'Avisar a troca quantos dias antes'], ['DiasPosVenda', 'Pós-venda quantos dias depois da O.S.'], ['IntervaloKm', 'Troca padrão a cada (km)'], ['IntervaloDias', 'Troca padrão a cada (dias)']], copiar: ['VenderSemEstoque', 'ImpressoraPadrao', 'AntecedenciaDias', 'DiasPosVenda', 'IntervaloKm', 'IntervaloDias'] }
   };
@@ -1694,7 +1696,7 @@ async function telaConfig() {
     const v = p[c] ?? '';
     if (t === 'sel') return `<div class="campo"><label>${esc(r)}</label><select data-cfg="${c}">${ops.map(o => `<option value="${o}"${o === v ? ' selected' : ''}>${o === 'NAO' ? 'NÃO' : o}</option>`).join('')}</select>${c === 'VenderSemEstoque' ? '<span class="suave peq">NÃO: a O.S. não aceita produto sem saldo e não fecha. O cupom fiscal sempre é registrado, porque a venda já aconteceu no B2Click.</span>' : ''}</div>`;
     if (t === 'area') return `<div class="campo largo"><label>${esc(r)}</label><textarea data-cfg="${c}" placeholder="${esc(PAD[c] || '')}">${esc(v)}</textarea></div>`;
-    return `<div class="campo${/Webhook|Emails/.test(c) ? ' largo' : ''}"><label>${esc(r)}</label><input type="text" data-cfg="${c}" value="${esc(v)}"></div>`;
+    return `<div class="campo${/Webhook|Emails|Endereco/.test(c) ? ' largo' : ''}"><label>${esc(r)}</label><input type="text" data-cfg="${c}" value="${esc(c === 'CNPJ' ? fmtDoc(v) : v)}"${c === 'CNPJ' ? ' inputmode="numeric"' : ''}>${c === 'Endereco' && v ? `<a class="suave peq" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v)}">Ver no mapa</a>` : ''}</div>`;
   };
   const desenhar = () => {
     const p = W.postos.find(x => x.Codigo === W.sel);
@@ -1814,9 +1816,12 @@ function mostrarDescanso() {
   descansoEl.className = 'descanso';
   descansoEl.setAttribute('role', 'button');
   descansoEl.setAttribute('aria-label', 'Toque para voltar ao app');
-  descansoEl.innerHTML = `<img alt="" src="${esc(imgs[0])}"><p>${esc(S.geral.DESCANSO_TEXTO || '')}</p>`;
+  const po = postoAtual(), nomeP = nomePosto(), end = po.Endereco || '';
+  const tarja = src => /(^|\/)descanso\.jpg(\?|$)/.test(src) || (!!window.DEMO_IMAGEM && src === window.DEMO_IMAGEM);
+  const sobre = `<div class="desc-tarja"><span>Serviço disponível no ${esc(nomeP)}.</span></div>${end ? `<div class="desc-end">${esc(end)}</div>` : ''}`;
+  descansoEl.innerHTML = `<div class="desc-img"><img alt="" src="${esc(imgs[0])}">${tarja(imgs[0]) ? sobre : ''}</div><p>${esc(S.geral.DESCANSO_TEXTO || '')}</p>${!tarja(imgs[0]) && end ? `<p class="desc-rodape">${esc(nomeP)} – ${esc(end)}</p>` : ''}`;
   document.body.appendChild(descansoEl);
-  const giro = imgs.length > 1 ? setInterval(() => { i = (i + 1) % imgs.length; $('img', descansoEl).src = imgs[i]; }, 12000) : null;
+  const giro = imgs.length > 1 ? setInterval(() => { i = (i + 1) % imgs.length; $('img', descansoEl).src = imgs[i]; $$('.desc-tarja,.desc-end', descansoEl).forEach(e => { e.hidden = !tarja(imgs[i]); }); }, 12000) : null;
   descansoEl.addEventListener('click', e => { e.stopPropagation(); clearInterval(giro); descansoEl.remove(); descansoEl = null; reiniciarDescanso(); });
 }
 ['pointerdown', 'keydown', 'scroll', 'input'].forEach(ev => document.addEventListener(ev, () => { if (!descansoEl) reiniciarDescanso(); }, { passive: true, capture: true }));
