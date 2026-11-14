@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.5.0 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.6.0 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.5.0';
+const VERSAO_APP = '1.6.0';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -511,7 +511,7 @@ async function painelInicio() {
   const el = $('#ini');
   const partes = [];
   const ag = S.agente;
-  partes.push(`<div class="bloco"><h3>Impressora do balcão</h3><p class="status-agente ${ag && ag.online ? 'on' : 'off'} peq">${ag && ag.online ? 'Agente impressor ligado' + (ag.nome ? ' (' + esc(ag.nome) + ')' : '') : 'Agente impressor desligado ou ainda não instalado neste posto'}</p><p class="suave peq">Dados do aparelho: ${D.ts ? 'atualizados em ' + esc(dataBR(D.ts) + ' ' + D.ts.slice(11, 16)) : 'ainda não baixados'} – ${D.clientes.length} clientes, ${D.produtos.length} produtos.</p></div>`);
+  partes.push(`<div class="bloco"><h3>Impressoras do posto</h3>${ag && ag.agentes && ag.agentes.length ? ag.agentes.map(a => `<p class="status-agente ${a.online ? 'on' : 'off'} peq" style="margin:.2rem 0">${esc(a.nome)} (${esc(a.destinos.join(' e '))}): ${a.online ? 'ligado' : 'desligado'}</p>`).join('') : `<p class="status-agente off peq">Nenhum agente impressor instalado neste posto</p>`}<p class="suave peq">Dados do aparelho: ${D.ts ? 'atualizados em ' + esc(dataBR(D.ts) + ' ' + D.ts.slice(11, 16)) : 'ainda não baixados'} – ${D.clientes.length} clientes, ${D.produtos.length} produtos.</p></div>`);
   el.innerHTML = '<div id="iniOS"></div><div id="iniLem"></div><div id="iniEst"></div>' + partes.join('');
   if (pode('ver_compra')) api('estoqueLotes', { limite: 1 }).then(j => {
     const l = j.lista && j.lista[0];
@@ -1399,7 +1399,24 @@ function medirAltura(html) {
     document.body.appendChild(f);
   });
 }
-async function imprimirDoc(html, fmt, onde, titulo) {
+function nomeArquivo(t) { return (String(t || 'documento').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^\w.-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'documento') + '.pdf'; }
+async function gerarPdfAparelho(html, titulo) {
+  const nome = nomeArquivo(titulo);
+  const j = await api('gerarPdf', { html, nome });
+  if (j.erro) throw new Error(j.erro);
+  const bin = atob(j.base64), u8 = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+  const arq = new File([u8], nome, { type: 'application/pdf' });
+  if (navigator.canShare && navigator.canShare({ files: [arq] })) {
+    try { await navigator.share({ files: [arq], title: titulo }); return; } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const url = URL.createObjectURL(arq), a = document.createElement('a');
+  a.href = url; a.download = nome; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  toast('PDF baixado: ' + nome);
+}
+async function imprimirDoc(html, fmt, onde, titulo, agente = '') {
+  if (onde === 'pdf') return gerarPdfAparelho(html, titulo);
   if (onde === 'aqui') {
     const f = document.createElement('iframe');
     f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
@@ -1416,23 +1433,38 @@ async function imprimirDoc(html, fmt, onde, titulo) {
   }
   let final = html, alt = 0;
   if (fmt === '80mm') { alt = await medirAltura(html); final = html.replace('size:80mm auto', `size:80mm ${alt}mm`); }
-  const j = await api('imprimir', { destino: fmt, html: final, alturaMm: alt, titulo });
+  const j = await api('imprimir', { destino: fmt, html: final, alturaMm: alt, titulo, agente });
   if (j.erro) throw new Error(j.erro);
   S.agente = j.agente;
-  if (j.agente && j.agente.online) toast('Enviado para a impressora do balcão.');
-  else toast('Ficou na fila, mas o agente impressor do balcão está desligado. Ligue o computador da impressora.', 'erro');
+  const lig = ((j.agente && j.agente.agentes) || []).filter(a => a.online && a.destinos.includes(fmt));
+  const ok = agente ? lig.some(a => a.nome === agente) : lig.length > 0;
+  if (ok) toast(`Enviado para ${agente || 'a impressora do balcão'}.`);
+  else toast(`Ficou na fila: ${agente ? 'o agente ' + agente + ' está' : 'nenhum agente com ' + fmt + ' está'} desligado. Sai assim que ligar.`, 'erro');
+}
+/* Destinos de impressão do posto: cada agente × formato, o próprio aparelho e PDF. */
+function opcoesImpressao(posto) {
+  const ag = (S.agente && S.agente.agentes) || [], ops = [];
+  ag.forEach(a => ['80mm', 'A4'].filter(f => a.destinos.includes(f)).forEach(f => ops.push({ onde: 'agente', agente: a.nome, fmt: f, online: a.online, rot: `${a.nome} – ${f === '80mm' ? 'cupom 80 mm' : 'A4'}` })));
+  if (!ag.length) ['80mm', 'A4'].forEach(f => ops.push({ onde: 'agente', agente: '', fmt: f, online: false, rot: `Balcão – ${f === '80mm' ? 'cupom 80 mm' : 'A4'}` }));
+  ops.push({ onde: 'aqui', agente: '', fmt: '80mm', online: true, rot: 'Neste aparelho – 80 mm' }, { onde: 'aqui', agente: '', fmt: 'A4', online: true, rot: 'Neste aparelho – A4' }, { onde: 'pdf', agente: '', fmt: 'A4', online: true, rot: 'Gerar PDF para enviar' });
+  return ops;
+}
+function impressaoPadrao(posto) {
+  const p = postoAtual(posto), fmt = p.ImpressoraPadrao || '80mm', v = String(p.ImpressaoPadrao || '');
+  if (v === 'aqui') return { onde: 'aqui', agente: '', fmt };
+  if (v === 'pdf') return { onde: 'pdf', agente: '', fmt: 'A4' };
+  return { onde: 'agente', agente: v.startsWith('agente:') ? v.slice(7) : '', fmt };
 }
 async function menuImprimir(gerar, titulo) {
-  const pad = postoAtual().ImpressoraPadrao || '80mm', ag = S.agente;
-  const v = await perguntar('Imprimir', `<p class="peq status-agente ${ag && ag.online ? 'on' : 'off'}">Impressora do balcão: ${ag && ag.online ? 'agente ligado' : 'agente desligado'}</p>`, [
-    { rotulo: 'Balcão – cupom 80 mm', valor: 'balcao|80mm', classe: pad === '80mm' ? 'btn-oleo' : '' },
-    { rotulo: 'Balcão – A4', valor: 'balcao|A4', classe: pad === 'A4' ? 'btn-oleo' : '' },
-    { rotulo: 'Neste aparelho – 80 mm', valor: 'aqui|80mm' },
-    { rotulo: 'Neste aparelho – A4', valor: 'aqui|A4' }
-  ]);
-  if (!v) return;
-  const [onde, fmt] = v.split('|');
-  await imprimirDoc(gerar(fmt), fmt, onde, titulo);
+  const ops = opcoesImpressao(), pad = impressaoPadrao();
+  const ePad = o => o.onde === pad.onde && o.fmt === pad.fmt && (o.onde !== 'agente' || o.agente === pad.agente || (!pad.agente && ops.filter(x => x.onde === 'agente' && x.fmt === pad.fmt).indexOf(o) === 0));
+  const btn = (o, i) => `<button class="btn ${ePad(o) ? 'btn-oleo' : ''}" data-valor="${i}" style="justify-content:flex-start">${o.onde === 'agente' ? `<span class="status-agente ${o.online ? 'on' : 'off'}" style="margin:0"></span>` : o.onde === 'pdf' ? '📄 ' : '📱 '}${esc(o.rot)}${o.onde === 'agente' && !o.online ? ' <span class="suave peq">(desligado)</span>' : ''}${ePad(o) ? ' <span class="peq">– padrão</span>' : ''}</button>`;
+  const grupo = (t, l) => l.length ? `<h3 style="margin:.6rem 0 .3rem">${t}</h3><div class="botoes" style="flex-direction:column;align-items:stretch">${l.map(o => btn(o, ops.indexOf(o))).join('')}</div>` : '';
+  const v = await perguntar('Imprimir', grupo('Agentes impressores', ops.filter(o => o.onde === 'agente')) + grupo('Neste aparelho', ops.filter(o => o.onde !== 'agente')), []);
+  if (v === null || v === undefined || v === false) return;
+  const o = ops[+v];
+  if (!o) return;
+  await imprimirDoc(gerar(o.fmt), o.fmt, o.onde, titulo, o.agente);
 }
 async function enviarOSEmail() {
   const o = S.osAtual, c = D.cli[o.ClienteId] || {}, p = { ...postoAtual(o.Posto), Nome: nomePosto(o.Posto) };
@@ -1734,12 +1766,18 @@ async function telaConfig() {
   const SEC = {
     dados: { t: 'Dados do posto', c: [['Nome', 'Nome fantasia do posto'], ['CNPJ', 'CNPJ'], ['Endereco', 'Endereço (aparece na tela de descanso e nas O.S.)'], ['Ativo', 'Situação', 'sel', ['SIM', 'NAO']], ['Emails', 'E-mails do posto (separe por vírgula)'], ['EmailsGerente', 'E-mails do gerente']], copiar: ['Emails', 'EmailsGerente'] },
     avisos: { t: 'Avisos e mensagens', c: [['TeamsWebhook', 'Link do webhook do Teams (Power Automate)'], ['MsgTroca', 'Mensagem do lembrete de troca', 'area'], ['MsgAniversario', 'Mensagem de aniversário', 'area'], ['MsgPosVenda', 'Mensagem de pós-venda', 'area'], ['MsgOS', 'Mensagem da O.S. no WhatsApp', 'area']], copiar: ['TeamsWebhook', 'MsgTroca', 'MsgAniversario', 'MsgPosVenda', 'MsgOS'] },
-    regras: { t: 'Regras', c: [['VenderSemEstoque', 'Vender sem estoque', 'sel', ['SIM', 'NAO']], ['ImpressoraPadrao', 'Impressora padrão do balcão', 'sel', ['80mm', 'A4']], ['AntecedenciaDias', 'Avisar a troca quantos dias antes'], ['DiasPosVenda', 'Pós-venda quantos dias depois da O.S.'], ['IntervaloKm', 'Troca padrão a cada (km)'], ['IntervaloDias', 'Troca padrão a cada (dias)']], copiar: ['VenderSemEstoque', 'ImpressoraPadrao', 'AntecedenciaDias', 'DiasPosVenda', 'IntervaloKm', 'IntervaloDias'] }
+    regras: { t: 'Regras', c: [['VenderSemEstoque', 'Vender sem estoque', 'sel', ['SIM', 'NAO']], ['ImpressaoPadrao', 'Onde imprimir por padrão', 'impr'], ['ImpressoraPadrao', 'Formato padrão', 'sel', ['80mm', 'A4']], ['AntecedenciaDias', 'Avisar a troca quantos dias antes'], ['DiasPosVenda', 'Pós-venda quantos dias depois da O.S.'], ['IntervaloKm', 'Troca padrão a cada (km)'], ['IntervaloDias', 'Troca padrão a cada (dias)']], copiar: ['VenderSemEstoque', 'ImpressaoPadrao', 'ImpressoraPadrao', 'AntecedenciaDias', 'DiasPosVenda', 'IntervaloKm', 'IntervaloDias'] }
   };
   const PAD = { MsgTroca: j.padrao.troca, MsgAniversario: j.padrao.aniversario, MsgPosVenda: j.padrao.posvenda, MsgOS: j.padrao.os };
   const campo = (p, [c, r, t, ops]) => {
     const v = p[c] ?? '';
     if (t === 'sel') return `<div class="campo"><label>${esc(r)}</label><select data-cfg="${c}">${ops.map(o => `<option value="${o}"${o === v ? ' selected' : ''}>${o === 'NAO' ? 'NÃO' : o}</option>`).join('')}</select>${c === 'VenderSemEstoque' ? '<span class="suave peq">NÃO: a O.S. não aceita produto sem saldo e não fecha. O cupom fiscal sempre é registrado, porque a venda já aconteceu no B2Click.</span>' : ''}</div>`;
+    if (t === 'impr') {
+      const ags = ((j.agentes[p.Codigo] || {}).agentes || []).map(a => a.nome);
+      if (v.startsWith('agente:') && !ags.includes(v.slice(7))) ags.push(v.slice(7));
+      const ops = [['', 'Qualquer agente impressor ligado'], ...ags.map(n => ['agente:' + n, 'Agente: ' + n]), ['aqui', 'Neste aparelho (impressão do celular/computador)'], ['pdf', 'Gerar PDF para enviar']];
+      return `<div class="campo largo"><label>${esc(r)}</label><select data-cfg="${c}">${ops.map(([k, n]) => `<option value="${esc(k)}"${k === v ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select><span class="suave peq">Fica destacado no botão Imprimir. Na hora, dá para escolher outro agente, o aparelho ou PDF.</span></div>`;
+    }
     if (t === 'area') return `<div class="campo largo"><label>${esc(r)}</label><textarea data-cfg="${c}" placeholder="${esc(PAD[c] || '')}">${esc(v)}</textarea></div>`;
     return `<div class="campo${/Webhook|Emails|Endereco/.test(c) ? ' largo' : ''}"><label>${esc(r)}</label><input type="text" data-cfg="${c}" value="${esc(c === 'CNPJ' ? fmtDoc(v) : v)}"${c === 'CNPJ' ? ' inputmode="numeric"' : ''}>${c === 'Endereco' && v ? `<a class="suave peq" target="_blank" rel="noopener" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(v)}">Ver no mapa</a>` : ''}</div>`;
   };
@@ -1760,7 +1798,7 @@ async function telaConfig() {
         <div class="campo largo"><label>Imagens da tela de descanso</label><input type="text" data-g="DESCANSO_IMAGENS" value="${esc(W.geral.DESCANSO_IMAGENS || '')}"><span class="suave peq">Nomes de arquivos enviados ao GitHub junto com o app, ou links de imagem, separados por vírgula. Com mais de uma, elas se alternam.</span></div>
         <div class="campo largo"><label>Cupom fiscal: palavras antes do número da O.S.</label><input type="text" data-g="CUPOM_ROTULO_OS" value="${esc(W.geral.CUPOM_ROTULO_OS || '')}"><span class="suave peq">Separadas por vírgula. Ex.: no cupom “PLACA ABC1D23 OS 125”, a palavra é OS.</span></div>
         <div class="campo"><span class="rot">Chave do agente impressor</span><div class="botoes" style="align-items:center"><code>${esc(W.verChave ? ch : (ch ? ch.slice(0, 4) + '••••••••' : '(sem chave)'))}</code><button class="btn btn-peq" id="gVer">${W.verChave ? 'Esconder' : 'Mostrar'}</button><button class="btn btn-peq" id="gNova">Gerar nova</button></div></div></div>
-        <h3 style="margin-top:1rem">Agentes impressores</h3><ul class="lista">${W.postos.map(x => { const a = j.agentes[x.Codigo] || {}; return `<li class="status-agente ${a.online ? 'on' : 'off'} peq" style="padding:.35rem 0">${esc(x.Nome || x.Codigo)}: ${a.online ? 'ligado' + (a.nome ? ' (' + esc(a.nome) + ')' : '') : 'desligado'}</li>`; }).join('')}</ul></div>
+        <h3 style="margin-top:1rem">Agentes impressores</h3><ul class="lista">${W.postos.map(x => { const a = j.agentes[x.Codigo] || {}; const l = a.agentes || []; return l.length ? l.map(g => `<li class="status-agente ${g.online ? 'on' : 'off'} peq" style="padding:.35rem 0">${esc(x.Nome || x.Codigo)} – ${esc(g.nome)} (${esc(g.destinos.join(' e '))}): ${g.online ? 'ligado' : 'desligado'}${g.versao ? ' – v' + esc(g.versao) : ''}</li>`).join('') : `<li class="status-agente off peq" style="padding:.35rem 0">${esc(x.Nome || x.Codigo)}: nenhum agente</li>`; }).join('')}</ul></div>
       <div class="bloco"><div class="cab"><h2>Postos</h2><button class="btn btn-peq" id="pNovo">+ Novo posto</button></div>
         <div class="abas">${W.postos.map(x => `<button data-p="${esc(x.Codigo)}" class="${x.Codigo === W.sel ? 'ativo' : ''}">${esc(x.Nome || x.Codigo)}</button>`).join('')}</div>
         ${p ? Object.entries(SEC).map(([k, s]) => `<section style="margin-top:1.2rem"><h3>${s.t}</h3><div class="campos">${k === 'dados' ? `<div class="campo"><span class="rot">Código</span><b>${esc(p.Codigo)}</b></div>` : ''}${s.c.map(x => campo(p, x)).join('')}</div>${k === 'avisos' ? '<p class="suave peq">Mensagem vazia usa o texto padrão (em cinza). Pode usar {nome}, {placa}, {modelo}, {data}, {km_txt}, {posto}, {os} e {total}.</p>' : ''}<button class="btn btn-peq" data-aplicar="${k}" style="margin-top:.6rem">📋 Aplicar a outros postos</button></section>`).join('') : '<p class="vazio">Nenhum posto cadastrado.</p>'}
