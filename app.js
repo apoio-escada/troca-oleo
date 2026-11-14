@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.7.0 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.7.1 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.7.0';
+const VERSAO_APP = '1.7.1';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -195,6 +195,7 @@ function indexar() {
   D.mod = {}; D.modelos.forEach(m => { m._ficha = parseFicha(m.Ficha); D.mod[m.Id] = m; });
   D.vei = {}; D.veiPorCli = {}; D.veiPorPlaca = {};
   D.veiculos.forEach(v => { v._ficha = parseFicha(v.Ficha); D.vei[v.Id] = v; (D.veiPorCli[v.ClienteId] = D.veiPorCli[v.ClienteId] || []).push(v); D.veiPorPlaca[v.Placa] = v; });
+  if (!pode('ver_compra')) D.produtos.forEach(p => { delete p.PrecoCompra; });
   D.prodCod = {}; D.prodBar = {};
   D.produtos.forEach(p => { D.prodCod[String(p.Codigo)] = p; String(p.Barras || '').split(/[;,\s]+/).forEach(b => { if (b) D.prodBar[b] = p; }); p._n = norm(`${p.Nome} ${p.Codigo} ${p.Grupo || ''}`); });
 }

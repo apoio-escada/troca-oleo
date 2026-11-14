@@ -1,5 +1,5 @@
 /* Troca de Óleo – service worker. Ao publicar versão nova do app, troque o nome do cache. */
-const CACHE = 'troca-oleo-v8';
+const CACHE = 'troca-oleo-v9';
 const ARQUIVOS = ['./', 'index.html', 'app.js', 'config.js', 'manifest.json', 'icone.svg', 'descanso.jpg'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ARQUIVOS)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
