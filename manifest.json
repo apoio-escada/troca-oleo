@@ -1,0 +1,11 @@
+{
+  "name": "Troca de Óleo – Postos Pichilau",
+  "short_name": "Troca de Óleo",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#4A1B6D",
+  "theme_color": "#4A1B6D",
+  "lang": "pt-BR",
+  "icons": [{ "src": "icone.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
