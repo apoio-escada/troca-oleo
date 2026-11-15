@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.7.1 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.8.0 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.7.1';
+const VERSAO_APP = '1.8.0';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -79,6 +79,7 @@ function aplicarAparencia() {
   document.title = (g.MARCA_SUBTITULO || 'Troca de Óleo') + ' – ' + (g.MARCA_NOME || '');
 }
 function guardarGeral(g) { if (!g) return; S.geral = { ...GERAL_PADRAO, ...g }; ls('to_geral', S.geral); aplicarAparencia(); reiniciarDescanso(); }
+const precoDe = (p, pag) => (pag || (S.osAtual && S.osAtual.Pagamento)) === 'PRAZO' && num(p.PrecoPrazo) ? num(p.PrecoPrazo) : num(p.PrecoVenda);
 const listaNomes = s => String(s || '').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
 function postoAtual(cod) { return S.postos.find(p => p.Codigo === (cod || S.posto)) || { Codigo: cod || S.posto, Nome: cod || S.posto || '' }; }
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
@@ -924,7 +925,7 @@ function escolherModelo() {
 
 /* ============ PRODUTOS ============ */
 function telaProdutos() {
-  const compra = pode('ver_compra'), ajusta = pode('ajustar_estoque');
+  const compra = pode('ver_compra'), ajusta = pode('ajustar_estoque') || pode('editar_preco');
   const F = S.filtroProd = S.filtroProd || { sit: '', grupo: '', cat: '', posto: S.posto };
   if (!S.postos.some(p => p.Codigo === F.posto)) F.posto = S.posto;
   let base = D.produtos;
@@ -957,7 +958,7 @@ function telaProdutos() {
   const mostrar = () => {
     const l = filtrados(), nomeP = (S.postos.find(p => p.Codigo === F.posto) || {}).Nome || F.posto;
     $('#pRes').textContent = `${l.length} de ${base.length} produto(s) – ${nomeP}. Saldo e preço da última importação do B2Click${ajusta ? '; toque em Ajustar para corrigir um saldo' : ''}.`;
-    $('#pLista').innerHTML = l.length ? l.slice(0, 200).map((p, i) => `<li style="display:flex;justify-content:space-between;gap:.8rem;padding:.6rem .2rem"><span style="min-width:0"><b>${esc(p.Nome)}</b><br><span class="suave peq">Cód. ${esc(p.Codigo)}${p.Barras ? ' – barras ' + esc(p.Barras) : ''}${p.Grupo ? ' – ' + esc(p.Grupo) : ''}${p.Categoria ? ' – ' + esc(p.Categoria) : ''}${p.Rede ? ' – cadastro da rede, sem estoque importado aqui' : ''}</span></span><span style="text-align:right;white-space:nowrap" class="num"><b>${brl(p.PrecoVenda)}</b>${compra && p.PrecoCompra !== undefined ? `<br><span class="suave peq">compra ${brl(p.PrecoCompra)}</span>` : ''}<br><span class="peq ${num(p.Estoque) <= 0 ? 'erro-campo' : 'suave'}">estoque ${fmtQtd(p.Estoque)} ${esc(p.Unidade || '')}</span>${ajusta && !p.Rede ? `<br><button class="btn-link peq" data-aj="${i}">Ajustar</button>` : ''}</span></li>`).join('') + (l.length > 200 ? `<li class="vazio">Mostrando 200 de ${l.length}. Use a busca ou os filtros, ou baixe a planilha.</li>` : '')
+    $('#pLista').innerHTML = l.length ? l.slice(0, 200).map((p, i) => `<li style="display:flex;justify-content:space-between;gap:.8rem;padding:.6rem .2rem"><span style="min-width:0"><b>${esc(p.Nome)}</b><br><span class="suave peq">Cód. ${esc(p.Codigo)}${p.Barras ? ' – barras ' + esc(p.Barras) : ''}${p.Grupo ? ' – ' + esc(p.Grupo) : ''}${p.Categoria ? ' – ' + esc(p.Categoria) : ''}${p.Rede ? ' – cadastro da rede, sem estoque importado aqui' : ''}</span></span><span style="text-align:right;white-space:nowrap" class="num"><b>${brl(p.PrecoVenda)}</b>${num(p.PrecoPrazo) ? `<br><span class="peq">a prazo ${brl(p.PrecoPrazo)}</span>` : ''}${compra && p.PrecoCompra !== undefined ? `<br><span class="suave peq">compra ${brl(p.PrecoCompra)}</span>` : ''}<br><span class="peq ${num(p.Estoque) <= 0 ? 'erro-campo' : 'suave'}">estoque ${fmtQtd(p.Estoque)} ${esc(p.Unidade || '')}</span>${ajusta && !p.Rede ? `<br><button class="btn-link peq" data-aj="${i}">Ajustar</button>` : ''}</span></li>`).join('') + (l.length > 200 ? `<li class="vazio">Mostrando 200 de ${l.length}. Use a busca ou os filtros, ou baixe a planilha.</li>` : '')
       : `<li class="vazio">${base.length ? 'Nada encontrado com esses filtros.' : 'Nenhum produto importado para este posto ainda.'}</li>`;
     $$('#pLista [data-aj]').forEach(b => { b.onclick = () => ajustarSaldo(l[+b.dataset.aj], F.posto).then(ok => { if (ok) mostrar(); }); });
   };
@@ -974,7 +975,7 @@ function telaProdutos() {
   $('#pScan').onclick = async () => { const c = await escanear(); if (c) { $('#pq').value = c; mostrar(); } };
   if ($('#pImp')) $('#pImp').onclick = () => ir('importar');
   const titulo = () => `Estoque ${(S.postos.find(p => p.Codigo === F.posto) || {}).Nome || F.posto} ${dataBR(hojeISO())}`;
-  const colunas = () => [['Código', 'Codigo'], ['Barras', 'Barras'], ['Produto', 'Nome'], ['Grupo', 'Grupo'], ['Categoria', 'Categoria'], ['Unid.', 'Unidade'], ['Preço venda', 'PrecoVenda']].concat(compra ? [['Preço compra', 'PrecoCompra']] : []).concat([['Estoque', 'Estoque']]);
+  const colunas = () => [['Código', 'Codigo'], ['Barras', 'Barras'], ['Produto', 'Nome'], ['Grupo', 'Grupo'], ['Categoria', 'Categoria'], ['Unid.', 'Unidade'], ['Preço à vista', 'PrecoVenda'], ['Preço a prazo', 'PrecoPrazo']].concat(compra ? [['Preço compra', 'PrecoCompra']] : []).concat([['Estoque', 'Estoque']]);
   $('#pXls').onclick = e => ocupado(e.currentTarget, async () => {
     await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
     const cs = colunas(), l = filtrados();
@@ -995,21 +996,36 @@ async function ajustarSaldo(p, posto) {
   const lideres = listaNomes(postoAtual(posto).Lideres);
   return new Promise(res => {
     let feito = false;
-    const m = abrirModal('Ajustar estoque', `<p><b>${esc(p.Nome)}</b><br><span class="suave peq">Cód. ${esc(p.Codigo)} – saldo atual ${fmtQtd(p.Estoque)} ${esc(p.Unidade || '')}</span></p>
-      <div class="campos"><div class="campo"><label for="ajN">Novo saldo</label><input id="ajN" type="text" inputmode="decimal" value="${esc(String(num(p.Estoque)).replace('.', ','))}"></div>
+    const m = abrirModal(pode('editar_preco') ? 'Preço e estoque' : 'Ajustar estoque', `<p><b>${esc(p.Nome)}</b><br><span class="suave peq">Cód. ${esc(p.Codigo)} – saldo atual ${fmtQtd(p.Estoque)} ${esc(p.Unidade || '')}</span></p>
+      ${pode('editar_preco') ? `<div class="campos" style="margin-bottom:.6rem"><div class="campo"><label for="ajV">Preço à vista</label><input id="ajV" type="text" inputmode="decimal" value="${esc(String(num(p.PrecoVenda)).replace('.', ','))}"></div><div class="campo"><label for="ajP">Preço a prazo</label><input id="ajP" type="text" inputmode="decimal" value="${num(p.PrecoPrazo) ? esc(String(num(p.PrecoPrazo)).replace('.', ',')) : ''}" placeholder="igual à vista"></div></div>` : ''}
+      ${pode('ajustar_estoque') ? `<div class="campos"><div class="campo"><label for="ajN">Novo saldo</label><input id="ajN" type="text" inputmode="decimal" value="${esc(String(num(p.Estoque)).replace('.', ','))}"></div>
       ${lideres.length ? `<div class="campo"><label for="ajR">Responsável *</label><select id="ajR"><option value="">Escolha…</option>${lideres.map(n => `<option>${esc(n)}</option>`).join('')}</select></div>` : ''}
-      <div class="campo largo"><label for="ajM">Motivo *</label><input id="ajM" type="text" placeholder="Ex.: contagem física, avaria, perda"></div></div>
-      <p class="suave peq">O ajuste fica no histórico (Baixas por cupom), com o saldo antes e depois.</p>
+      <div class="campo largo"><label for="ajM">Motivo do ajuste de estoque</label><input id="ajM" type="text" placeholder="Ex.: contagem física, avaria, perda"></div></div>
+      <p class="suave peq">O ajuste de estoque fica no histórico (Baixas por cupom), com o saldo antes e depois.</p>` : ''}
       <div class="botoes"><button class="btn" id="ajC">Cancelar</button><button class="btn btn-oleo" id="ajS">Salvar ajuste</button></div>`, { aoFechar: () => { if (!feito) res(false); } });
     $('#ajC', m.el).onclick = () => m.fechar();
     $('#ajS', m.el).onclick = e => ocupado(e.currentTarget, async () => {
-      const resp = $('#ajR', m.el) ? $('#ajR', m.el).value : '';
-      if (lideres.length && !resp) throw new Error('Escolha o responsável.');
-      const j = await api('ajustarEstoque', { posto, codigo: p.Codigo, novo: String($('#ajN', m.el).value).replace(/\./g, '').replace(',', '.'), motivo: $('#ajM', m.el).value, responsavel: resp });
-      if (j.erro) throw new Error(j.erro);
-      p.Estoque = j.estoque;
-      if (posto === S.posto) aplicarEstoque([{ Codigo: j.codigo, Estoque: j.estoque }]);
-      toast('Estoque ajustado.'); feito = true; m.fechar(); res(true);
+      const dec = v => String(v || '').replace(/\./g, '').replace(',', '.');
+      if ($('#ajV', m.el)) {
+        const nv = dec($('#ajV', m.el).value), np = dec($('#ajP', m.el).value);
+        if (num(nv) !== num(p.PrecoVenda) || num(np) !== num(p.PrecoPrazo)) {
+          const jp = await api('editarPreco', { posto, codigo: p.Codigo, vista: nv, prazo: np });
+          if (jp.erro) throw new Error(jp.erro);
+          p.PrecoVenda = jp.PrecoVenda; p.PrecoPrazo = jp.PrecoPrazo;
+          const loc = posto === S.posto && D.prodCod[p.Codigo]; if (loc && loc !== p) { loc.PrecoVenda = jp.PrecoVenda; loc.PrecoPrazo = jp.PrecoPrazo; }
+          salvarCache(); toast('Preço salvo.');
+        }
+      }
+      if ($('#ajN', m.el) && num(dec($('#ajN', m.el).value)) !== num(p.Estoque)) {
+        const resp = $('#ajR', m.el) ? $('#ajR', m.el).value : '';
+        if (lideres.length && !resp) throw new Error('Escolha o responsável.');
+        const j = await api('ajustarEstoque', { posto, codigo: p.Codigo, novo: dec($('#ajN', m.el).value), motivo: $('#ajM', m.el).value, responsavel: resp });
+        if (j.erro) throw new Error(j.erro);
+        p.Estoque = j.estoque;
+        if (posto === S.posto) aplicarEstoque([{ Codigo: j.codigo, Estoque: j.estoque }]);
+        toast('Estoque ajustado.');
+      }
+      feito = true; m.fechar(); res(true);
     });
   });
 }
@@ -1144,7 +1160,7 @@ function selecionarVeiculoOS(id) {
   S.osSujo = true;
 }
 function alternativasDe(fi) {
-  return (fi.produtos || []).map(p => { const x = D.prodCod[p.codigo]; return { codigo: p.codigo, nome: x ? x.Nome : p.nome, preco: x ? num(x.PrecoVenda) : 0, estoque: x ? num(x.Estoque) : 0, existe: !!x }; });
+  return (fi.produtos || []).map(p => { const x = D.prodCod[p.codigo]; return { codigo: p.codigo, nome: x ? x.Nome : p.nome, preco: x ? precoDe(x) : 0, estoque: x ? num(x.Estoque) : 0, existe: !!x }; });
 }
 function puxarFicha(silencioso) {
   const o = S.osAtual, v = D.vei[o.VeiculoId], f = fichaDoVeiculo(v);
@@ -1178,7 +1194,7 @@ function adicionarItemOS(p) {
   else {
     const tipo = adivinharTipo(p.Nome + ' ' + (p.Grupo || ''));
     const fi = fichaDoVeiculo(D.vei[o.VeiculoId]).find(x => x.tipo === tipo);
-    o.Itens.push({ codigo: String(p.Codigo || ''), nome: p.Nome, tipo, qtd: fi && num(fi.qtd) ? num(fi.qtd) : 1, preco: num(p.PrecoVenda), alternativas: fi ? alternativasDe(fi) : [] });
+    o.Itens.push({ codigo: String(p.Codigo || ''), nome: p.Nome, tipo, qtd: fi && num(fi.qtd) ? num(fi.qtd) : 1, preco: precoDe(p), alternativas: fi ? alternativasDe(fi) : [] });
   }
   S.osSujo = true;
   desenharItensOS();
@@ -1201,6 +1217,7 @@ function desenharOS() {
     <div class="bloco"><div class="cab"><h2>Itens</h2>${ed && v ? '<button class="btn btn-peq" id="osFicha">Puxar ficha</button>' : ''}</div>
       ${ed ? `<div class="botoes" style="flex-wrap:nowrap"><input type="search" id="osBusca" placeholder="Código de barras, código ou nome" autocomplete="off"><button class="btn" id="osScan" aria-label="Ler código de barras">📷</button></div><div id="osRes"></div><button class="btn-link" id="osAvulso">+ Serviço ou item avulso</button>` : ''}
       <div id="osItens"></div>
+      <div class="botoes" style="margin:.6rem 0 0;align-items:center"><span class="rot" style="margin:0">Pagamento</span>${[['VISTA', 'À vista'], ['PRAZO', 'A prazo']].map(([k, n]) => `<button class="btn btn-peq ${(o.Pagamento || 'VISTA') === k ? 'btn-oleo' : ''}" data-pag="${k}" ${ed ? '' : 'disabled'}>${n}</button>`).join('')}</div>
       <div class="totais"><span class="suave">Subtotal <span class="num" id="osSub"></span></span>${podePreco && ed ? `<label class="suave">Desconto R$ <input id="osDesc" type="text" inputmode="decimal" value="${o.Desconto ? esc(String(o.Desconto).replace('.', ',')) : ''}" style="width:7rem;min-height:2.3rem"></label>` : o.Desconto ? `<span class="suave">Desconto <span class="num">${brl(o.Desconto)}</span></span>` : ''}<span>Total <span class="total num" id="osTot"></span></span></div></div>
     <div class="bloco"><div class="campo"><label for="osObs">Observação</label><textarea id="osObs" ${ed ? '' : 'disabled'}>${esc(o.Obs)}</textarea></div></div>
     <div id="osB2"></div>
@@ -1214,6 +1231,12 @@ function desenharOS() {
   $('#osData').onchange = () => { o.Data = $('#osData').value; sujo(); };
   $('#osTroca').onchange = () => { o.TrocaOleo = $('#osTroca').checked; sujo(); };
   $('#osObs').oninput = () => { o.Obs = $('#osObs').value; sujo(); };
+  $$('[data-pag]').forEach(b => { b.onclick = () => {
+    if ((o.Pagamento || 'VISTA') === b.dataset.pag) return;
+    o.Pagamento = b.dataset.pag;
+    o.Itens.forEach(it => { const x = D.prodCod[it.codigo]; if (x) it.preco = precoDe(x, o.Pagamento); (it.alternativas || []).forEach(a => { const y = D.prodCod[a.codigo]; if (y) a.preco = precoDe(y, o.Pagamento); }); });
+    S.osSujo = true; desenharOS(); toast(o.Pagamento === 'PRAZO' ? 'Preços a prazo aplicados.' : 'Preços à vista aplicados.');
+  }; });
   if ($('#osDesc')) $('#osDesc').oninput = () => { o.Desconto = num($('#osDesc').value); sujo(); atualizarTotais(); };
   $('#osCli').onclick = async () => {
     const r = await escolherCliente();
@@ -1466,7 +1489,7 @@ const idPostoA4 = p => [p.CNPJ && dig(p.CNPJ) ? 'CNPJ ' + fmtDoc(p.CNPJ) : '', p
 function htmlDoc(corpo, fmt, titulo) { return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(titulo)}</title><style>${fmt === '80mm' ? CSS_80 : CSS_A4}</style></head><body>${corpo}</body></html>`; }
 function docOS(o, fmt) {
   const p = { ...postoAtual(o.Posto), Nome: nomePosto(o.Posto) }, c = D.cli[o.ClienteId] || { Nome: o.ClienteNome }, v = D.vei[o.VeiculoId], m = v ? D.mod[v.ModeloId] : null;
-  const cupom = o.CupomNumero ? 'Cupom fiscal nº ' + o.CupomNumero : '';
+  const cupom = (o.CupomNumero ? 'Cupom fiscal nº ' + o.CupomNumero : '') + (o.Pagamento === 'PRAZO' ? (o.CupomNumero ? ' – ' : '') + 'Pagamento a prazo' : '');
   const st = o.Status === 'FECHADA' ? '' : o.Status === 'EXCLUIDA' ? 'EXCLUÍDA' : 'EM ABERTO';
   const prox = v && v.ProximaData && o.TrocaOleo && o.Status === 'FECHADA' && v.UltimaTrocaData === o.Data ? `Próxima troca: ${dataBR(v.ProximaData)}${num(v.ProximaKm) ? ' ou ' + fmtKm(v.ProximaKm) : ''}, o que vier primeiro.` : '';
   const tit = 'O.S. nº ' + o.Numero;
@@ -1752,7 +1775,7 @@ async function telaDashboard() {
 /* ============ IMPORTAÇÃO DE PRODUTOS ============ */
 const CAMPOS_IMP = [
   ['Barras', 'Código de barras', /barra|ean|gtin/], ['Codigo', 'Código interno *', /^c[oó]d|refer|^ref\b|^id/], ['PrecoCompra', 'Preço de compra (custo)', /custo|compra/],
-  ['PrecoVenda', 'Preço de venda', /venda|pre[cç]o|valor|vlr/], ['Estoque', 'Estoque', /estoque|saldo|qtd|quant/], ['Nome', 'Nome/descrição *', /descri|nome|produto/],
+  ['PrecoPrazo', 'Preço a prazo', /prazo|parcel/], ['PrecoVenda', 'Preço à vista', /vista|venda|pre[cç]o|valor|vlr/], ['Estoque', 'Estoque', /estoque|saldo|qtd|quant/], ['Nome', 'Nome/descrição *', /descri|nome|produto/],
   ['Unidade', 'Unidade', /^un|unid/], ['Grupo', 'Grupo', /grupo|fam[ií]l|se[cç][aã]o/], ['Categoria', 'Categoria', /categ|subgrupo|classe/]
 ];
 function telaImportar() {
