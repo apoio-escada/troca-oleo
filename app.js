@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.8.0 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.9.0 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.8.0';
+const VERSAO_APP = '1.9.0';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -80,6 +80,8 @@ function aplicarAparencia() {
 }
 function guardarGeral(g) { if (!g) return; S.geral = { ...GERAL_PADRAO, ...g }; ls('to_geral', S.geral); aplicarAparencia(); reiniciarDescanso(); }
 const precoDe = (p, pag) => (pag || (S.osAtual && S.osAtual.Pagamento)) === 'PRAZO' && num(p.PrecoPrazo) ? num(p.PrecoPrazo) : num(p.PrecoVenda);
+const COMB_PADRAO = [{ nome: 'Gasolina', un: 'L' }, { nome: 'Etanol', un: 'L' }, { nome: 'Diesel', un: 'L' }, { nome: 'ARLA 32 granel', un: 'L' }, { nome: 'Óleo Mobil granel', un: 'L' }];
+function combustiveisDe(posto) { try { const l = JSON.parse((S.postos.find(p => p.Codigo === posto) || {}).Combustiveis || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } }
 const listaNomes = s => String(s || '').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
 function postoAtual(cod) { return S.postos.find(p => p.Codigo === (cod || S.posto)) || { Codigo: cod || S.posto, Nome: cod || S.posto || '' }; }
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
@@ -197,6 +199,9 @@ function indexar() {
   D.vei = {}; D.veiPorCli = {}; D.veiPorPlaca = {};
   D.veiculos.forEach(v => { v._ficha = parseFicha(v.Ficha); D.vei[v.Id] = v; (D.veiPorCli[v.ClienteId] = D.veiPorCli[v.ClienteId] || []).push(v); D.veiPorPlaca[v.Placa] = v; });
   if (!pode('ver_compra')) D.produtos.forEach(p => { delete p.PrecoCompra; });
+  const imp = D.produtos.filter(p => !p._comb), cods = new Set(imp.map(p => String(p.Codigo)));
+  D.produtos = imp.concat(combustiveisDe(S.posto).filter(c => c.ativo !== false).map((c, i) => ({ _comb: true, Codigo: c.codigo || 'GRANEL-' + (i + 1), Nome: c.nome, Unidade: c.un || 'L',
+    Grupo: 'COMBUSTÍVEIS E GRANEL', PrecoVenda: String(c.vista || 0), PrecoPrazo: c.prazo === '' || c.prazo === undefined ? '' : String(c.prazo), Estoque: '' })).filter(p => !cods.has(String(p.Codigo))));
   D.prodCod = {}; D.prodBar = {};
   D.produtos.forEach(p => { D.prodCod[String(p.Codigo)] = p; String(p.Barras || '').split(/[;,\s]+/).forEach(b => { if (b) D.prodBar[b] = p; }); p._n = norm(`${p.Nome} ${p.Codigo} ${p.Grupo || ''}`); });
 }
@@ -254,7 +259,7 @@ window.addEventListener('popstate', () => {
     PILHA.pop(); const t = PILHA[PILHA.length - 1]; render(t.tela, t.arg);
   }
 });
-const NAV_DE = { estoque: 'mais', cupom: 'os', cliente: 'clientes', 'cliente-form': 'clientes', 'os-form': 'os', modelos: 'mais', extrato: 'mais', lembretes: 'mais', usuarios: 'mais', config: 'mais' };
+const NAV_DE = { estoque: 'mais', cupom: 'os', cliente: 'clientes', 'cliente-form': 'clientes', 'os-form': 'os', modelos: 'mais', extrato: 'mais', lembretes: 'mais', combustiveis: 'mais', usuarios: 'mais', config: 'mais' };
 function render(tela, arg) {
   S.tela = tela;
   $$('#nav button').forEach(b => b.classList.toggle('ativo', b.dataset.t === (NAV_DE[tela] || tela)));
@@ -958,7 +963,7 @@ function telaProdutos() {
   const mostrar = () => {
     const l = filtrados(), nomeP = (S.postos.find(p => p.Codigo === F.posto) || {}).Nome || F.posto;
     $('#pRes').textContent = `${l.length} de ${base.length} produto(s) – ${nomeP}. Saldo e preço da última importação do B2Click${ajusta ? '; toque em Ajustar para corrigir um saldo' : ''}.`;
-    $('#pLista').innerHTML = l.length ? l.slice(0, 200).map((p, i) => `<li style="display:flex;justify-content:space-between;gap:.8rem;padding:.6rem .2rem"><span style="min-width:0"><b>${esc(p.Nome)}</b><br><span class="suave peq">Cód. ${esc(p.Codigo)}${p.Barras ? ' – barras ' + esc(p.Barras) : ''}${p.Grupo ? ' – ' + esc(p.Grupo) : ''}${p.Categoria ? ' – ' + esc(p.Categoria) : ''}${p.Rede ? ' – cadastro da rede, sem estoque importado aqui' : ''}</span></span><span style="text-align:right;white-space:nowrap" class="num"><b>${brl(p.PrecoVenda)}</b>${num(p.PrecoPrazo) ? `<br><span class="peq">a prazo ${brl(p.PrecoPrazo)}</span>` : ''}${compra && p.PrecoCompra !== undefined ? `<br><span class="suave peq">compra ${brl(p.PrecoCompra)}</span>` : ''}<br><span class="peq ${num(p.Estoque) <= 0 ? 'erro-campo' : 'suave'}">estoque ${fmtQtd(p.Estoque)} ${esc(p.Unidade || '')}</span>${ajusta && !p.Rede ? `<br><button class="btn-link peq" data-aj="${i}">Ajustar</button>` : ''}</span></li>`).join('') + (l.length > 200 ? `<li class="vazio">Mostrando 200 de ${l.length}. Use a busca ou os filtros, ou baixe a planilha.</li>` : '')
+    $('#pLista').innerHTML = l.length ? l.slice(0, 200).map((p, i) => `<li style="display:flex;justify-content:space-between;gap:.8rem;padding:.6rem .2rem"><span style="min-width:0"><b>${esc(p.Nome)}</b><br><span class="suave peq">Cód. ${esc(p.Codigo)}${p.Barras ? ' – barras ' + esc(p.Barras) : ''}${p.Grupo ? ' – ' + esc(p.Grupo) : ''}${p.Categoria ? ' – ' + esc(p.Categoria) : ''}${p.Rede ? ' – cadastro da rede, sem estoque importado aqui' : ''}</span></span><span style="text-align:right;white-space:nowrap" class="num"><b>${brl(p.PrecoVenda)}</b>${num(p.PrecoPrazo) ? `<br><span class="peq">a prazo ${brl(p.PrecoPrazo)}</span>` : ''}${compra && p.PrecoCompra !== undefined ? `<br><span class="suave peq">compra ${brl(p.PrecoCompra)}</span>` : ''}<br>${p._comb ? '<span class="peq suave">granel – sem estoque no app</span>' : `<span class="peq ${num(p.Estoque) <= 0 ? 'erro-campo' : 'suave'}">estoque ${fmtQtd(p.Estoque)} ${esc(p.Unidade || '')}</span>`}${ajusta && !p.Rede && !p._comb ? `<br><button class="btn-link peq" data-aj="${i}">Ajustar</button>` : ''}</span></li>`).join('') + (l.length > 200 ? `<li class="vazio">Mostrando 200 de ${l.length}. Use a busca ou os filtros, ou baixe a planilha.</li>` : '')
       : `<li class="vazio">${base.length ? 'Nada encontrado com esses filtros.' : 'Nenhum produto importado para este posto ainda.'}</li>`;
     $$('#pLista [data-aj]').forEach(b => { b.onclick = () => ajustarSaldo(l[+b.dataset.aj], F.posto).then(ok => { if (ok) mostrar(); }); });
   };
@@ -1180,13 +1185,13 @@ function puxarFicha(silencioso) {
 const semEstoqueBloqueado = () => postoAtual(S.osAtual && S.osAtual.Posto).VenderSemEstoque === 'NAO' && !(S.osAtual && S.osAtual.CupomNumero);
 function faltaEstoque(itens) {
   const soma = {};
-  itens.forEach(i => { if (i.codigo && D.prodCod[i.codigo]) soma[i.codigo] = (soma[i.codigo] || 0) + num(i.qtd); });
+  itens.forEach(i => { if (i.codigo && D.prodCod[i.codigo] && !D.prodCod[i.codigo]._comb) soma[i.codigo] = (soma[i.codigo] || 0) + num(i.qtd); });
   return Object.keys(soma).filter(k => soma[k] > num(D.prodCod[k].Estoque) + 0.0005).map(k => `${D.prodCod[k].Nome} (estoque ${fmtQtd(D.prodCod[k].Estoque)})`);
 }
 function adicionarItemOS(p) {
   const o = S.osAtual;
   const ex = p.Codigo && o.Itens.find(i => i.codigo === String(p.Codigo));
-  if (semEstoqueBloqueado() && !p._livre && p.Codigo && D.prodCod[p.Codigo]) {
+  if (semEstoqueBloqueado() && !p._livre && !p._comb && p.Codigo && D.prodCod[p.Codigo]) {
     const quero = (ex ? num(ex.qtd) : 0) + 1;
     if (num(p.Estoque) < quero) { toast(`${p.Nome}: sem estoque (saldo ${fmtQtd(p.Estoque)}). Este posto não vende sem estoque.`, 'erro'); return; }
   }
@@ -1286,7 +1291,7 @@ function desenharItensOS() {
   if (!el) return;
   el.innerHTML = o.Itens.length ? o.Itens.map((it, i) => {
     const p = D.prodCod[it.codigo];
-    const falta = p && num(p.Estoque) < num(it.qtd);
+    const falta = p && !p._comb && num(p.Estoque) < num(it.qtd);
     const bloq = falta && semEstoqueBloqueado();
     return `<div class="veic" data-i="${i}"${bloq ? ' style="border-color:var(--alerta)"' : ''}><div style="display:flex;justify-content:space-between;gap:.5rem"><div style="min-width:0"><b>${esc(it.nome)}</b><br><span class="suave peq">${esc(TIPOS_ITEM[it.tipo] || '')}${it.codigo ? ' – cód. ' + esc(it.codigo) : ''}</span>${falta ? `<br><span class="erro-campo">${semEstoqueBloqueado() ? 'Sem saldo suficiente: ' : 'Estoque no sistema: '}${fmtQtd(p.Estoque)}</span>` : ''}</div>${ed ? `<button class="btn-link" data-rm aria-label="Remover ${esc(it.nome)}" style="font-size:1.5rem;line-height:1">×</button>` : ''}</div>
       ${ed && it.alternativas && it.alternativas.length > 1 ? `<select data-alt style="margin-top:.4rem" aria-label="Trocar produto">${it.alternativas.map(a => `<option value="${esc(a.codigo)}"${a.codigo === it.codigo ? ' selected' : ''}>${esc(a.nome)}${a.existe ? ' – ' + brl(a.preco) + ' (est. ' + fmtQtd(a.estoque) + ')' : ' – fora do cadastro'}</option>`).join('')}</select>` : ''}
@@ -2003,6 +2008,39 @@ async function telaConfig() {
 }
 
 /* ============ MAIS ============ */
+function telaCombustiveis() {
+  let posto = S.posto;
+  let L = [];
+  const carregar = () => { const l = combustiveisDe(posto); L = (l.length ? l : COMB_PADRAO).map(x => ({ codigo: x.codigo || '', nome: x.nome, un: x.un || 'L', vista: x.vista ?? '', prazo: x.prazo ?? '', ativo: x.ativo !== false })); };
+  const dec = v => String(v ?? '').trim() === '' ? '' : num(String(v).replace(/\./g, '').replace(',', '.'));
+  const vbr = v => v === '' || v === undefined ? '' : String(v).replace('.', ',');
+  const desenhar = () => {
+    V(`<div class="cab"><h1>Combustíveis e granel</h1></div>
+      ${S.postos.length > 1 ? `<div class="campo" style="max-width:22rem"><label for="cbPo">Posto</label><select id="cbPo">${S.postos.map(p => `<option value="${esc(p.Codigo)}"${p.Codigo === posto ? ' selected' : ''}>${esc(p.Nome)}</option>`).join('')}</select></div>` : ''}
+      <div class="bloco"><p class="suave peq" style="margin-top:0">Preço por litro de cada posto. Entram na O.S. pela busca de produtos e usam o preço à vista ou a prazo conforme o pagamento escolhido. Não têm controle de estoque no app. Preço a prazo em branco = igual ao à vista.</p>
+      ${L.map((c, i) => `<div class="campos" style="border-bottom:1px solid #eee;padding:.5rem 0">
+        <div class="campo"><label>Produto</label><input data-f="nome" data-i="${i}" value="${esc(c.nome)}"></div>
+        <div class="campo"><label>Código B2Click</label><input data-f="codigo" data-i="${i}" value="${esc(c.codigo)}" inputmode="numeric"></div>
+        <div class="campo"><label>À vista (R$/${esc(c.un)})</label><input data-f="vista" data-i="${i}" value="${esc(vbr(c.vista))}" inputmode="decimal"></div>
+        <div class="campo"><label>A prazo (R$/${esc(c.un)})</label><input data-f="prazo" data-i="${i}" value="${esc(vbr(c.prazo))}" inputmode="decimal" placeholder="igual à vista"></div>
+        <label class="check campo"><input type="checkbox" data-f="ativo" data-i="${i}" ${c.ativo ? 'checked' : ''}><span>Ativo</span></label>
+        <button class="btn btn-peq btn-perigo" data-del="${i}" style="align-self:end">Remover</button></div>`).join('')}
+      <div class="botoes" style="margin-top:.8rem"><button class="btn" id="cbAdd">+ Produto a granel</button><button class="btn btn-oleo" id="cbSalvar" style="margin-left:auto">Salvar preços</button></div></div>`);
+    $$('[data-f]').forEach(inp => { inp.oninput = inp.onchange = () => { const c = L[+inp.dataset.i]; c[inp.dataset.f] = inp.type === 'checkbox' ? inp.checked : inp.value; }; });
+    $$('[data-del]').forEach(b => { b.onclick = () => { L.splice(+b.dataset.del, 1); desenhar(); }; });
+    $('#cbAdd').onclick = () => { L.push({ codigo: '', nome: '', un: 'L', vista: '', prazo: '', ativo: true }); desenhar(); };
+    if ($('#cbPo')) $('#cbPo').onchange = () => { posto = $('#cbPo').value; carregar(); desenhar(); };
+    $('#cbSalvar').onclick = e => ocupado(e.currentTarget, async () => {
+      const lista = L.filter(c => String(c.nome).trim()).map(c => ({ codigo: String(c.codigo).trim(), nome: String(c.nome).trim(), un: c.un || 'L', vista: dec(c.vista) || 0, prazo: dec(c.prazo), ativo: !!c.ativo }));
+      if (lista.some(c => c.ativo && !c.vista)) throw new Error('Preencha o preço à vista dos produtos ativos.');
+      const j = await api('salvarCombustiveis', { posto, lista });
+      if (j.erro) throw new Error(j.erro);
+      S.postos = j.postos; salvarSessao(); indexar(); salvarCache();
+      toast('Preços salvos.'); carregar(); desenhar();
+    });
+  };
+  carregar(); desenhar();
+}
 function telaMais() {
   const it = [
     pode('cadastro') && ['modelos', '🚚', 'Catálogo de veículos', 'Modelos com óleo e filtros que usam'],
@@ -2014,6 +2052,7 @@ function telaMais() {
     pode('importar') && ['importar', '⬆️', 'Importar produtos', 'Preço de venda, compra e estoque do sistema'],
     pode('admin') && ['usuarios', '👥', 'Usuários', 'Logins de trocador, caixa, importação e gerente'],
     pode('admin') && ['config', '⚙️', 'Configurações', 'Postos, mensagens, Teams e impressoras'],
+    pode('editar_preco') && ['combustiveis', '⛽', 'Combustíveis e granel', 'Preço à vista e a prazo de gasolina, etanol, diesel, ARLA e óleo a granel'],
     ['senha', '🔑', 'Trocar minha senha', ''],
     ['sair', '↩︎', 'Sair', 'Apaga do aparelho os dados baixados']
   ].filter(Boolean);
@@ -2389,7 +2428,7 @@ async function telaEstoque(arg = {}) {
 const TELAS = {
   inicio: telaInicio, clientes: telaClientes, cliente: telaCliente, 'cliente-form': telaClienteForm, modelos: telaModelos,
   os: telaOSLista, 'os-form': telaOSForm, produtos: telaProdutos, extrato: telaExtrato, lembretes: telaLembretes,
-  dashboard: telaDashboard, importar: telaImportar, cupom: telaCupom, estoque: telaEstoque, usuarios: telaUsuarios, config: telaConfig, mais: telaMais, senha: () => telaTrocarSenha(false)
+  dashboard: telaDashboard, combustiveis: telaCombustiveis, importar: telaImportar, cupom: telaCupom, estoque: telaEstoque, usuarios: telaUsuarios, config: telaConfig, mais: telaMais, senha: () => telaTrocarSenha(false)
 };
 window.addEventListener('load', () => {
   if ('serviceWorker' in navigator && !CFG.DEMO) navigator.serviceWorker.register('sw.js').catch(() => {});
