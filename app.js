@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.9.0 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.9.1 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.9.0';
+const VERSAO_APP = '1.9.1';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -82,6 +82,7 @@ function guardarGeral(g) { if (!g) return; S.geral = { ...GERAL_PADRAO, ...g }; 
 const precoDe = (p, pag) => (pag || (S.osAtual && S.osAtual.Pagamento)) === 'PRAZO' && num(p.PrecoPrazo) ? num(p.PrecoPrazo) : num(p.PrecoVenda);
 const COMB_PADRAO = [{ nome: 'Gasolina', un: 'L' }, { nome: 'Etanol', un: 'L' }, { nome: 'Diesel', un: 'L' }, { nome: 'ARLA 32 granel', un: 'L' }, { nome: 'Óleo Mobil granel', un: 'L' }];
 function combustiveisDe(posto) { try { const l = JSON.parse((S.postos.find(p => p.Codigo === posto) || {}).Combustiveis || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } }
+const barrasDe = it => String(it.barras || ((D.prodCod || {})[it.codigo] || {}).Barras || '').split(/[;,\s]+/)[0] || '';
 const listaNomes = s => String(s || '').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
 function postoAtual(cod) { return S.postos.find(p => p.Codigo === (cod || S.posto)) || { Codigo: cod || S.posto, Nome: cod || S.posto || '' }; }
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
@@ -1293,7 +1294,7 @@ function desenharItensOS() {
     const p = D.prodCod[it.codigo];
     const falta = p && !p._comb && num(p.Estoque) < num(it.qtd);
     const bloq = falta && semEstoqueBloqueado();
-    return `<div class="veic" data-i="${i}"${bloq ? ' style="border-color:var(--alerta)"' : ''}><div style="display:flex;justify-content:space-between;gap:.5rem"><div style="min-width:0"><b>${esc(it.nome)}</b><br><span class="suave peq">${esc(TIPOS_ITEM[it.tipo] || '')}${it.codigo ? ' – cód. ' + esc(it.codigo) : ''}</span>${falta ? `<br><span class="erro-campo">${semEstoqueBloqueado() ? 'Sem saldo suficiente: ' : 'Estoque no sistema: '}${fmtQtd(p.Estoque)}</span>` : ''}</div>${ed ? `<button class="btn-link" data-rm aria-label="Remover ${esc(it.nome)}" style="font-size:1.5rem;line-height:1">×</button>` : ''}</div>
+    return `<div class="veic" data-i="${i}"${bloq ? ' style="border-color:var(--alerta)"' : ''}><div style="display:flex;justify-content:space-between;gap:.5rem"><div style="min-width:0"><b>${esc(it.nome)}</b><br><span class="suave peq">${esc(TIPOS_ITEM[it.tipo] || '')}${it.codigo ? ' – cód. interno ' + esc(it.codigo) : ''}${barrasDe(it) ? ' – barras ' + esc(barrasDe(it)) : ''}</span>${falta ? `<br><span class="erro-campo">${semEstoqueBloqueado() ? 'Sem saldo suficiente: ' : 'Estoque no sistema: '}${fmtQtd(p.Estoque)}</span>` : ''}</div>${ed ? `<button class="btn-link" data-rm aria-label="Remover ${esc(it.nome)}" style="font-size:1.5rem;line-height:1">×</button>` : ''}</div>
       ${ed && it.alternativas && it.alternativas.length > 1 ? `<select data-alt style="margin-top:.4rem" aria-label="Trocar produto">${it.alternativas.map(a => `<option value="${esc(a.codigo)}"${a.codigo === it.codigo ? ' selected' : ''}>${esc(a.nome)}${a.existe ? ' – ' + brl(a.preco) + ' (est. ' + fmtQtd(a.estoque) + ')' : ' – fora do cadastro'}</option>`).join('')}</select>` : ''}
       <div class="botoes" style="align-items:center;margin-top:.4rem"><label class="peq">Qtd <input data-q type="text" inputmode="decimal" value="${esc(String(it.qtd).replace('.', ','))}" style="width:5rem;min-height:2.3rem" ${ed ? '' : 'disabled'}></label>
       <label class="peq">Preço ${ed && podePreco ? `<input data-p type="text" inputmode="decimal" value="${esc(num(it.preco).toFixed(2).replace('.', ','))}" style="width:6.5rem;min-height:2.3rem">` : `<b class="num">${brl(it.preco)}</b>`}</label>
@@ -1339,12 +1340,13 @@ function desenharLancarB2() {
   el.innerHTML = `<div class="bloco b2"><div class="cab"><h2>Lançar no B2Click</h2>${o.LancadaEm ? '<span class="selo ok">lançada</span>' : '<span class="selo">a lançar</span>'}</div>
     <p class="suave peq" style="margin-top:0">Toque em Copiar e cole no B2Click. ${o.Id && S.osSujo ? '<b>Salve a O.S. antes, para copiar os dados atualizados.</b>' : ''}</p>
     ${linhas.map(ln).join('')}
-    ${itens.length ? `<h3 style="margin:.8rem 0 .3rem">Produtos</h3>${itens.map((i, k) => `<div class="b2-linha"><span class="rot">${esc(i.nome)}</span><span class="b2-val num">${i.codigo ? 'cód. ' + esc(i.codigo) : 'sem código'} · qtd ${fmtQtd(i.qtd)}</span>${i.codigo ? `<span class="botoes" style="flex-wrap:nowrap"><button class="btn btn-peq" data-ci="${k}">Cód.</button><button class="btn btn-peq" data-cq="${k}">Qtd</button></span>` : '<span></span>'}</div>`).join('')}` : ''}
+    ${itens.length ? `<h3 style="margin:.8rem 0 .3rem">Produtos</h3>${itens.map((i, k) => `<div class="b2-linha"><span class="rot">${esc(i.nome)}</span><span class="b2-val num">${i.codigo ? 'cód. ' + esc(i.codigo) : 'sem código'}${barrasDe(i) ? '<br>barras ' + esc(barrasDe(i)) : ''} · qtd ${fmtQtd(i.qtd)}</span>${i.codigo ? `<span class="botoes" style="flex-wrap:nowrap"><button class="btn btn-peq" data-ci="${k}">Cód.</button>${barrasDe(i) ? `<button class="btn btn-peq" data-cb="${k}">Barras</button>` : ''}<button class="btn btn-peq" data-cq="${k}">Qtd</button></span>` : '<span></span>'}</div>`).join('')}` : ''}
     <div class="botoes" style="margin-top:.8rem">${o.LancadaEm
       ? `<span class="suave peq" style="align-self:center">Lançada no B2Click por ${esc(o.LancadaPor)} em ${dataBR(o.LancadaEm)} ${esc(String(o.LancadaEm).slice(11, 16))}.</span><button class="btn btn-peq" id="b2Des">Desmarcar</button>`
       : '<button class="btn btn-oleo" id="b2Marca">Marcar como lançada no B2Click</button>'}</div></div>`;
   $$('[data-cp]', el).forEach(b => { b.onclick = () => copiarTexto(linhas[+b.dataset.cp][1]); });
   $$('[data-ci]', el).forEach(b => { b.onclick = () => copiarTexto(itens[+b.dataset.ci].codigo); });
+  $$('[data-cb]', el).forEach(b => { b.onclick = () => copiarTexto(barrasDe(itens[+b.dataset.cb])); });
   $$('[data-cq]', el).forEach(b => { b.onclick = () => copiarTexto(String(num(itens[+b.dataset.cq].qtd)).replace('.', ',')); });
   const marcar = desfazer => async e => ocupado(e.currentTarget, async () => {
     if (!desfazer && !await garantirSalva()) return;
@@ -1431,7 +1433,7 @@ async function salvarOS(fechar) {
     o.CaixaNome = r.caixa;
     if (r.cupom && !o.CupomChave) o.CupomNumero = r.cupom;
   }
-  const envio = { ...o, Itens: o.Itens.map(i => ({ codigo: i.codigo, nome: i.nome, tipo: i.tipo, qtd: num(i.qtd), preco: num(i.preco) })) };
+  const envio = { ...o, Itens: o.Itens.map(i => ({ codigo: i.codigo, barras: barrasDe(i), nome: i.nome, tipo: i.tipo, qtd: num(i.qtd), preco: num(i.preco) })) };
   const j = await api('salvarOS', { os: envio, fechar });
   if (j.erro) throw new Error(j.erro);
   const alts = {};
@@ -1501,16 +1503,16 @@ function docOS(o, fmt) {
   if (fmt === '80mm') {
     return htmlDoc(`<h1>${esc(p.Nome)}</h1>${idPosto80(p)}<p class="c">ORDEM DE SERVIÇO Nº ${esc(o.Numero)}</p><p class="c">${dataBR(o.Data)}${st ? ' – ' + st : ''}</p>${cupom ? `<p class="c">${esc(cupom)}</p>` : ''}<hr>
       <p><b>Cliente:</b> ${esc(c.Nome)}</p>${o.Placa ? `<p><b>Placa:</b> ${esc(fmtPlaca(o.Placa))}${m ? ' – ' + esc(nomeModelo(m)) : ''}</p>` : ''}${num(o.Km) ? `<p><b>KM:</b> ${fmtKm(o.Km)}</p>` : ''}<hr>
-      <table>${o.Itens.map(i => `<tr><td colspan="2">${esc(i.nome)}</td></tr><tr><td class="peq">${fmtQtd(i.qtd)} x ${brl(i.preco)}</td><td class="r">${brl(num(i.qtd) * num(i.preco))}</td></tr>`).join('')}</table><hr>
+      <table>${o.Itens.map(i => `<tr><td colspan="2">${esc(i.nome)}</td></tr>${i.codigo || barrasDe(i) ? `<tr><td colspan="2" class="peq">${i.codigo ? 'Cód. ' + esc(i.codigo) : ''}${barrasDe(i) ? (i.codigo ? ' – ' : '') + 'Barras ' + esc(barrasDe(i)) : ''}</td></tr>` : ''}<tr><td class="peq">${fmtQtd(i.qtd)} x ${brl(i.preco)}</td><td class="r">${brl(num(i.qtd) * num(i.preco))}</td></tr>`).join('')}</table><hr>
       <table><tr><td>Subtotal</td><td class="r">${brl(o.Subtotal)}</td></tr>${num(o.Desconto) ? `<tr><td>Desconto</td><td class="r">-${brl(o.Desconto)}</td></tr>` : ''}<tr><td class="g">TOTAL</td><td class="r g">${brl(o.Total)}</td></tr></table>
       ${prox ? `<hr><p class="c"><b>${esc(prox)}</b></p>` : ''}${o.Obs ? `<hr><p>${esc(o.Obs)}</p>` : ''}<hr><p class="c">Obrigado pela preferência!</p><p class="c peq">Documento sem valor fiscal.</p>`, fmt, tit);
   }
   return htmlDoc(`<table class="sem" style="border-bottom:3px solid #4A1B6D"><tr><td><h1>${esc(p.Nome)}</h1><span class="peq">${idPostoA4(p) || 'Troca de óleo'}</span></td><td class="r"><span class="g">O.S. nº ${esc(o.Numero)}</span><br>${dataBR(o.Data)}${cupom ? '<br>' + esc(cupom) : ''}${st ? '<br><b>' + st + '</b>' : ''}</td></tr></table>
     <h2>Cliente</h2><table><tr><td><b>${esc(c.Nome)}</b>${c.Fantasia ? '<br>' + esc(c.Fantasia) : ''}</td><td>${c.Documento ? (dig(c.Documento).length === 14 ? 'CNPJ ' : 'CPF ') + esc(fmtDoc(c.Documento)) : ''}</td><td>${esc(fmtFone(c.WhatsApp || c.Fone))}${c.Email ? '<br>' + esc(c.Email) : ''}</td></tr></table>
     <h2>Veículo</h2><table><tr><td>Placa <b>${esc(fmtPlaca(o.Placa))}</b></td><td>${esc(nomeModelo(m))}${m ? ' – ' + esc(m.Tipo) : ''}</td><td>KM ${num(o.Km) ? fmtKm(o.Km) : 'não informado'}</td></tr></table>
-    <h2>Itens</h2><table><tr><th>Código</th><th>Descrição</th><th class="r">Qtd</th><th class="r">Preço</th><th class="r">Total</th></tr>
-    ${o.Itens.map(i => `<tr><td>${esc(i.codigo)}</td><td>${esc(i.nome)}</td><td class="r">${fmtQtd(i.qtd)}</td><td class="r">${brl(i.preco)}</td><td class="r">${brl(num(i.qtd) * num(i.preco))}</td></tr>`).join('')}
-    <tr><td colspan="4" class="r">Subtotal</td><td class="r">${brl(o.Subtotal)}</td></tr>${num(o.Desconto) ? `<tr><td colspan="4" class="r">Desconto</td><td class="r">-${brl(o.Desconto)}</td></tr>` : ''}<tr><td colspan="4" class="r g">Total</td><td class="r g">${brl(o.Total)}</td></tr></table>
+    <h2>Itens</h2><table><tr><th>Cód. interno</th><th>Cód. barras</th><th>Descrição</th><th class="r">Qtd</th><th class="r">Preço</th><th class="r">Total</th></tr>
+    ${o.Itens.map(i => `<tr><td>${esc(i.codigo)}</td><td>${esc(barrasDe(i))}</td><td>${esc(i.nome)}</td><td class="r">${fmtQtd(i.qtd)}</td><td class="r">${brl(i.preco)}</td><td class="r">${brl(num(i.qtd) * num(i.preco))}</td></tr>`).join('')}
+    <tr><td colspan="5" class="r">Subtotal</td><td class="r">${brl(o.Subtotal)}</td></tr>${num(o.Desconto) ? `<tr><td colspan="5" class="r">Desconto</td><td class="r">-${brl(o.Desconto)}</td></tr>` : ''}<tr><td colspan="5" class="r g">Total</td><td class="r g">${brl(o.Total)}</td></tr></table>
     ${prox ? `<p class="g" style="margin-top:14px">${esc(prox)}</p>` : ''}${o.Obs ? `<h2>Observação</h2><p>${esc(o.Obs)}</p>` : ''}
     <table class="sem" style="margin-top:56px"><tr><td style="width:50%;padding-right:24px"><div style="border-top:1px solid #000;text-align:center;padding-top:4px">Responsável pelo serviço</div></td><td><div style="border-top:1px solid #000;text-align:center;padding-top:4px">Cliente</div></td></tr></table>
     <p class="peq" style="margin-top:20px">Documento sem valor fiscal.</p>`, fmt, tit);
@@ -2345,7 +2347,7 @@ async function gravarCupom(R) {
   if (v && !o.VeiculoId) { o.VeiculoId = v.Id; o.Placa = v.Placa; }
   if (R.km && !num(o.Km)) o.Km = R.km;
   Object.assign(o, { CupomNumero: c.numero, CupomChave: c.chave, CupomData: c.dataHora || c.data, CupomTotal: c.total, Origem: usarOS ? 'OS+CUPOM' : 'CUPOM' });
-  const j = await api('salvarOS', { os: { ...o, Itens: o.Itens.map(i => ({ codigo: i.codigo, nome: i.nome, tipo: i.tipo, qtd: num(i.qtd), preco: num(i.preco) })) }, fechar: true });
+  const j = await api('salvarOS', { os: { ...o, Itens: o.Itens.map(i => ({ codigo: i.codigo, barras: barrasDe(i), nome: i.nome, tipo: i.tipo, qtd: num(i.qtd), preco: num(i.preco) })) }, fechar: true });
   if (j.erro) throw new Error(j.erro);
   if (j.veiculo) { upsert('veiculos', j.veiculo); aposSalvar(); }
   aplicarEstoque(j.estoque);
