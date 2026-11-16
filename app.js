@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.9.1 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.9.2 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.9.1';
+const VERSAO_APP = '1.9.2';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -1316,6 +1316,54 @@ function atualizarTotais() {
   o.Subtotal = arred(sub); o.Total = arred(sub - num(o.Desconto));
   if ($('#osSub')) { $('#osSub').textContent = brl(o.Subtotal); $('#osTot').textContent = brl(o.Total); }
 }
+/* ============ CÓDIGO DE BARRAS (para bipar no B2Click) ============ */
+const EAN_L = ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
+const EAN_G = ['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'];
+const EAN_R = ['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'];
+const EAN_P = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+const C128 = ['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213','221312','231212','112232','122132','122231','113222','123122','123221','223211','221132','221231','213212','223112','312131','311222','321122','321221','312212','322112','322211','212123','212321','232121','111323','131123','131321','112313','132113','132311','211313','231113','231311','112133','112331','132131','113123','113321','133121','313121','211331','231131','213113','213311','213131','311123','311321','331121','312113','312311','332111','314111','221411','431111','111224','111422','121124','121421','141122','141221','112214','112412','122114','122411','142112','142211','241211','221114','413111','241112','134111','111242','121142','121241','114212','124112','124211','411212','421112','421211','212141','214121','412121','111143','111341','131141','114113','114311','411113','411311','113141','114131','311141','411131','211412','211214','211232','2331112'];
+function eanOk(d) { if (!/^\d{13}$/.test(d)) return false; let s = 0; for (let i = 0; i < 12; i++) s += +d[i] * (i % 2 ? 3 : 1); return (10 - s % 10) % 10 === +d[12]; }
+function ean8Ok(d) { if (!/^\d{8}$/.test(d)) return false; let s = 0; for (let i = 0; i < 7; i++) s += +d[i] * (i % 2 ? 1 : 3); return (10 - s % 10) % 10 === +d[7]; }
+/** Devolve a sequência de módulos (1 = barra, 0 = espaço) e o tipo. */
+function modulosBarras(v) {
+  v = String(v || '').trim();
+  if (/^\d{12}$/.test(v) && eanOk('0' + v)) v = '0' + v;
+  if (eanOk(v)) {
+    const p = EAN_P[+v[0]];
+    let m = '101';
+    for (let i = 1; i <= 6; i++) m += (p[i - 1] === 'L' ? EAN_L : EAN_G)[+v[i]];
+    m += '01010';
+    for (let i = 7; i <= 12; i++) m += EAN_R[+v[i]];
+    return { m: m + '101', tipo: 'EAN-13' };
+  }
+  if (ean8Ok(v)) {
+    let m = '101';
+    for (let i = 0; i < 4; i++) m += EAN_L[+v[i]];
+    m += '01010';
+    for (let i = 4; i < 8; i++) m += EAN_R[+v[i]];
+    return { m: m + '101', tipo: 'EAN-8' };
+  }
+  if (!v || /[^\x20-\x7e]/.test(v)) return null;
+  // Code 128: só números com tamanho par usa o conjunto C (mais curto); senão, conjunto B
+  let vals;
+  if (/^\d+$/.test(v) && v.length % 2 === 0) { vals = [105]; for (let i = 0; i < v.length; i += 2) vals.push(+v.substr(i, 2)); }
+  else { vals = [104]; for (const ch of v) vals.push(ch.charCodeAt(0) - 32); }
+  let soma = vals[0]; for (let i = 1; i < vals.length; i++) soma += vals[i] * i;
+  vals.push(soma % 103, 106);
+  let m = '';
+  vals.forEach(x => { [...C128[x]].forEach((w, k) => { m += (k % 2 ? '0' : '1').repeat(+w); }); });
+  return { m, tipo: 'Code 128' };
+}
+/** SVG do código de barras. largura em px (tela) ou mm (impressão, com unidade 'mm'). */
+function svgBarras(v, { alt = 46, larg = 260, un = 'px' } = {}) {
+  const r = modulosBarras(v);
+  if (!r) return '';
+  const q = 10, n = r.m.length + q * 2;
+  let x = q, rects = '';
+  r.m.replace(/1+|0+/g, s => { if (s[0] === '1') rects += `<rect x="${x}" y="0" width="${s.length}" height="${alt}"/>`; x += s.length; return s; });
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="cod-barras" viewBox="0 0 ${n} ${alt}" width="${larg}${un}" height="${alt * larg / n}${un}" preserveAspectRatio="none" shape-rendering="crispEdges" role="img" aria-label="Código de barras ${String(v).replace(/"/g, '')}"><rect width="${n}" height="${alt}" fill="#fff"/><g fill="#000">${rects}</g></svg>`;
+}
+
 /* ============ LANÇAR NO B2CLICK (caixa) ============ */
 async function copiarTexto(t) {
   t = String(t ?? '');
@@ -1340,7 +1388,7 @@ function desenharLancarB2() {
   el.innerHTML = `<div class="bloco b2"><div class="cab"><h2>Lançar no B2Click</h2>${o.LancadaEm ? '<span class="selo ok">lançada</span>' : '<span class="selo">a lançar</span>'}</div>
     <p class="suave peq" style="margin-top:0">Toque em Copiar e cole no B2Click. ${o.Id && S.osSujo ? '<b>Salve a O.S. antes, para copiar os dados atualizados.</b>' : ''}</p>
     ${linhas.map(ln).join('')}
-    ${itens.length ? `<h3 style="margin:.8rem 0 .3rem">Produtos</h3>${itens.map((i, k) => `<div class="b2-linha"><span class="rot">${esc(i.nome)}</span><span class="b2-val num">${i.codigo ? 'cód. ' + esc(i.codigo) : 'sem código'}${barrasDe(i) ? '<br>barras ' + esc(barrasDe(i)) : ''} · qtd ${fmtQtd(i.qtd)}</span>${i.codigo ? `<span class="botoes" style="flex-wrap:nowrap"><button class="btn btn-peq" data-ci="${k}">Cód.</button>${barrasDe(i) ? `<button class="btn btn-peq" data-cb="${k}">Barras</button>` : ''}<button class="btn btn-peq" data-cq="${k}">Qtd</button></span>` : '<span></span>'}</div>`).join('')}` : ''}
+    ${itens.length ? `<h3 style="margin:.8rem 0 .3rem">Produtos</h3>${itens.map((i, k) => `${barrasDe(i) || i.codigo ? `<div class="b2-bip">${svgBarras(barrasDe(i) || i.codigo, { larg: 250 })}<span class="suave peq">${barrasDe(i) ? 'bipar: código de barras ' + esc(barrasDe(i)) : 'bipar: código interno ' + esc(i.codigo)}</span></div>` : ''}<div class="b2-linha b2-prod"><span class="rot">${esc(i.nome)}</span><span class="b2-val num">${i.codigo ? 'cód. ' + esc(i.codigo) : 'sem código'}${barrasDe(i) ? ' · barras ' + esc(barrasDe(i)) : ''} · qtd ${fmtQtd(i.qtd)}</span>${i.codigo ? `<span class="botoes" style="flex-wrap:nowrap"><button class="btn btn-peq" data-ci="${k}">Cód.</button>${barrasDe(i) ? `<button class="btn btn-peq" data-cb="${k}">Barras</button>` : ''}<button class="btn btn-peq" data-cq="${k}">Qtd</button></span>` : '<span></span>'}</div>`).join('')}` : ''}
     <div class="botoes" style="margin-top:.8rem">${o.LancadaEm
       ? `<span class="suave peq" style="align-self:center">Lançada no B2Click por ${esc(o.LancadaPor)} em ${dataBR(o.LancadaEm)} ${esc(String(o.LancadaEm).slice(11, 16))}.</span><button class="btn btn-peq" id="b2Des">Desmarcar</button>`
       : '<button class="btn btn-oleo" id="b2Marca">Marcar como lançada no B2Click</button>'}</div></div>`;
@@ -1489,8 +1537,8 @@ function escolherCliente() {
 }
 
 /* ============ IMPRESSÃO E ENVIO ============ */
-const CSS_80 = '@page{size:80mm auto;margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:80mm;padding:3mm 4mm 6mm;font:12px/1.35 Arial,Helvetica,sans-serif;color:#000}h1{font-size:15px;margin:0;text-align:center}.c{text-align:center}.r{text-align:right}p{margin:2px 0}hr{border:0;border-top:1px dashed #000;margin:6px 0}table{width:100%;border-collapse:collapse}td{vertical-align:top;padding:1px 0}.g{font-size:16px;font-weight:bold}.peq{font-size:10px}';
-const CSS_A4 = '@page{size:A4;margin:14mm}*{box-sizing:border-box}body{margin:0;font:12px/1.45 Arial,Helvetica,sans-serif;color:#111}h1{font-size:20px;margin:0}h2{font-size:14px;margin:16px 0 6px;border-bottom:2px solid #FFC20E;padding-bottom:3px}table{width:100%;border-collapse:collapse}th,td{padding:5px 6px;border-bottom:1px solid #ccc;text-align:left;vertical-align:top}th{background:#f1f1ee;font-size:11px}.r{text-align:right}.sem td{border:0}.g{font-size:16px;font-weight:bold}.peq{font-size:10px;color:#555}';
+const CSS_80 = 'svg.cod-barras{display:block;margin:0 auto}@page{size:80mm auto;margin:0}*{box-sizing:border-box}html,body{margin:0}body{width:80mm;padding:3mm 4mm 6mm;font:12px/1.35 Arial,Helvetica,sans-serif;color:#000}h1{font-size:15px;margin:0;text-align:center}.c{text-align:center}.r{text-align:right}p{margin:2px 0}hr{border:0;border-top:1px dashed #000;margin:6px 0}table{width:100%;border-collapse:collapse}td{vertical-align:top;padding:1px 0}.g{font-size:16px;font-weight:bold}.peq{font-size:10px}';
+const CSS_A4 = 'svg.cod-barras{display:block;margin:0 auto}@page{size:A4;margin:14mm}*{box-sizing:border-box}body{margin:0;font:12px/1.45 Arial,Helvetica,sans-serif;color:#111}h1{font-size:20px;margin:0}h2{font-size:14px;margin:16px 0 6px;border-bottom:2px solid #FFC20E;padding-bottom:3px}table{width:100%;border-collapse:collapse}th,td{padding:5px 6px;border-bottom:1px solid #ccc;text-align:left;vertical-align:top}th{background:#f1f1ee;font-size:11px}.r{text-align:right}.sem td{border:0}.g{font-size:16px;font-weight:bold}.peq{font-size:10px;color:#555}';
 const idPosto80 = p => [p.CNPJ && dig(p.CNPJ) ? 'CNPJ ' + fmtDoc(p.CNPJ) : '', p.Endereco || ''].filter(Boolean).map(t => `<p class="c peq">${esc(t)}</p>`).join('');
 const idPostoA4 = p => [p.CNPJ && dig(p.CNPJ) ? 'CNPJ ' + fmtDoc(p.CNPJ) : '', p.Endereco || ''].filter(Boolean).map(esc).join('<br>');
 function htmlDoc(corpo, fmt, titulo) { return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(titulo)}</title><style>${fmt === '80mm' ? CSS_80 : CSS_A4}</style></head><body>${corpo}</body></html>`; }
@@ -1503,7 +1551,7 @@ function docOS(o, fmt) {
   if (fmt === '80mm') {
     return htmlDoc(`<h1>${esc(p.Nome)}</h1>${idPosto80(p)}<p class="c">ORDEM DE SERVIÇO Nº ${esc(o.Numero)}</p><p class="c">${dataBR(o.Data)}${st ? ' – ' + st : ''}</p>${cupom ? `<p class="c">${esc(cupom)}</p>` : ''}<hr>
       <p><b>Cliente:</b> ${esc(c.Nome)}</p>${o.Placa ? `<p><b>Placa:</b> ${esc(fmtPlaca(o.Placa))}${m ? ' – ' + esc(nomeModelo(m)) : ''}</p>` : ''}${num(o.Km) ? `<p><b>KM:</b> ${fmtKm(o.Km)}</p>` : ''}<hr>
-      <table>${o.Itens.map(i => `<tr><td colspan="2">${esc(i.nome)}</td></tr>${i.codigo || barrasDe(i) ? `<tr><td colspan="2" class="peq">${i.codigo ? 'Cód. ' + esc(i.codigo) : ''}${barrasDe(i) ? (i.codigo ? ' – ' : '') + 'Barras ' + esc(barrasDe(i)) : ''}</td></tr>` : ''}<tr><td class="peq">${fmtQtd(i.qtd)} x ${brl(i.preco)}</td><td class="r">${brl(num(i.qtd) * num(i.preco))}</td></tr>`).join('')}</table><hr>
+      <table>${o.Itens.map(i => `<tr><td colspan="2">${esc(i.nome)}</td></tr>${barrasDe(i) || i.codigo ? `<tr><td colspan="2" style="padding-top:1mm">${svgBarras(barrasDe(i) || i.codigo, { larg: 58, alt: 40, un: 'mm' })}</td></tr>` : ''}${i.codigo || barrasDe(i) ? `<tr><td colspan="2" class="peq">${i.codigo ? 'Cód. ' + esc(i.codigo) : ''}${barrasDe(i) ? (i.codigo ? ' – ' : '') + 'Barras ' + esc(barrasDe(i)) : ''}</td></tr>` : ''}<tr><td class="peq">${fmtQtd(i.qtd)} x ${brl(i.preco)}</td><td class="r">${brl(num(i.qtd) * num(i.preco))}</td></tr>`).join('')}</table><hr>
       <table><tr><td>Subtotal</td><td class="r">${brl(o.Subtotal)}</td></tr>${num(o.Desconto) ? `<tr><td>Desconto</td><td class="r">-${brl(o.Desconto)}</td></tr>` : ''}<tr><td class="g">TOTAL</td><td class="r g">${brl(o.Total)}</td></tr></table>
       ${prox ? `<hr><p class="c"><b>${esc(prox)}</b></p>` : ''}${o.Obs ? `<hr><p>${esc(o.Obs)}</p>` : ''}<hr><p class="c">Obrigado pela preferência!</p><p class="c peq">Documento sem valor fiscal.</p>`, fmt, tit);
   }
@@ -1511,7 +1559,7 @@ function docOS(o, fmt) {
     <h2>Cliente</h2><table><tr><td><b>${esc(c.Nome)}</b>${c.Fantasia ? '<br>' + esc(c.Fantasia) : ''}</td><td>${c.Documento ? (dig(c.Documento).length === 14 ? 'CNPJ ' : 'CPF ') + esc(fmtDoc(c.Documento)) : ''}</td><td>${esc(fmtFone(c.WhatsApp || c.Fone))}${c.Email ? '<br>' + esc(c.Email) : ''}</td></tr></table>
     <h2>Veículo</h2><table><tr><td>Placa <b>${esc(fmtPlaca(o.Placa))}</b></td><td>${esc(nomeModelo(m))}${m ? ' – ' + esc(m.Tipo) : ''}</td><td>KM ${num(o.Km) ? fmtKm(o.Km) : 'não informado'}</td></tr></table>
     <h2>Itens</h2><table><tr><th>Cód. interno</th><th>Cód. barras</th><th>Descrição</th><th class="r">Qtd</th><th class="r">Preço</th><th class="r">Total</th></tr>
-    ${o.Itens.map(i => `<tr><td>${esc(i.codigo)}</td><td>${esc(barrasDe(i))}</td><td>${esc(i.nome)}</td><td class="r">${fmtQtd(i.qtd)}</td><td class="r">${brl(i.preco)}</td><td class="r">${brl(num(i.qtd) * num(i.preco))}</td></tr>`).join('')}
+    ${o.Itens.map(i => `<tr><td>${esc(i.codigo)}</td><td>${barrasDe(i) || i.codigo ? svgBarras(barrasDe(i) || i.codigo, { larg: 38, alt: 30, un: 'mm' }) + '<br>' : ''}${esc(barrasDe(i))}</td><td>${esc(i.nome)}</td><td class="r">${fmtQtd(i.qtd)}</td><td class="r">${brl(i.preco)}</td><td class="r">${brl(num(i.qtd) * num(i.preco))}</td></tr>`).join('')}
     <tr><td colspan="5" class="r">Subtotal</td><td class="r">${brl(o.Subtotal)}</td></tr>${num(o.Desconto) ? `<tr><td colspan="5" class="r">Desconto</td><td class="r">-${brl(o.Desconto)}</td></tr>` : ''}<tr><td colspan="5" class="r g">Total</td><td class="r g">${brl(o.Total)}</td></tr></table>
     ${prox ? `<p class="g" style="margin-top:14px">${esc(prox)}</p>` : ''}${o.Obs ? `<h2>Observação</h2><p>${esc(o.Obs)}</p>` : ''}
     <table class="sem" style="margin-top:56px"><tr><td style="width:50%;padding-right:24px"><div style="border-top:1px solid #000;text-align:center;padding-top:4px">Responsável pelo serviço</div></td><td><div style="border-top:1px solid #000;text-align:center;padding-top:4px">Cliente</div></td></tr></table>
