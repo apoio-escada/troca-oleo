@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.10.0 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.11.0 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.10.0';
+const VERSAO_APP = '1.11.0';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -1096,7 +1096,7 @@ function escanear() {
 /* ============ ORDENS DE SERVIÇO ============ */
 function seloStatus(s) { return s === 'FECHADA' ? '<span class="selo ok">fechada</span>' : s === 'EXCLUIDA' ? '<span class="selo alerta">excluída</span>' : '<span class="selo oleo">aberta</span>'; }
 function linhaOS(o) {
-  return `<li><button class="linha-btn" data-osid="${esc(o.Id)}">${o.Placa ? placaHtml(o.Placa) : ''}<span class="cresce"><span class="tit">Nº ${esc(o.Numero)} – ${esc(o.ClienteNome || '')}</span><span class="sub">${dataBR(o.Data)}${o.Posto !== S.posto ? ' – ' + esc(nomePosto(o.Posto)) : ''}</span></span><span style="text-align:right"><b class="num">${brl(o.Total)}</b><br>${seloStatus(o.Status)}${(prazoOS(o) || {}).atrasada ? ' <span class="selo alerta">atrasada</span>' : ''}${o.Status === 'ABERTA' || (o.Status !== 'EXCLUIDA' && !o.CupomNumero) ? (o.LancadaEm ? ' <span class="selo ok">no B2Click</span>' : ' <span class="selo">a lançar</span>') : ''}</span></button></li>`;
+  return `<li><button class="linha-btn" data-osid="${esc(o.Id)}">${o.Placa ? placaHtml(o.Placa) : ''}<span class="cresce"><span class="tit">Nº ${esc(o.Numero)} – ${esc(o.ClienteNome || '')}</span><span class="sub">${dataBR(o.Data)}${o.Posto !== S.posto ? ' – ' + esc(nomePosto(o.Posto)) : ''}</span></span><span style="text-align:right"><b class="num">${brl(o.Total)}</b><br>${seloStatus(o.Status)}${(prazoOS(o) || {}).atrasada ? ' <span class="selo alerta">atrasada</span>' : ''}${o.CupomSemCliente === 'SIM' ? ' <span class="selo alerta">PDV s/ cliente</span>' : ''}${o.Status === 'ABERTA' || (o.Status !== 'EXCLUIDA' && !o.CupomNumero) ? (o.LancadaEm ? ' <span class="selo ok">no B2Click</span>' : ' <span class="selo">a lançar</span>') : ''}</span></button></li>`;
 }
 function ligarOS(el) { $$('[data-osid]', el).forEach(b => { b.onclick = () => ir('os-form', { id: b.dataset.osid }); }); }
 function presetDeBusca(q) {
@@ -1219,8 +1219,9 @@ function adicionarItemOS(p) {
 function desenharOS() {
   const o = S.osAtual, ed = osEditavel(o), c = D.cli[o.ClienteId], vs = o.ClienteId ? (D.veiPorCli[o.ClienteId] || []) : [];
   const v = D.vei[o.VeiculoId], m = v ? D.mod[v.ModeloId] : null, podePreco = pode('os_fechar');
-  V(`<div class="cab"><div><h1>${o.Id ? 'O.S. nº ' + esc(o.Numero) : 'Nova O.S.'}</h1><span class="suave peq">${esc(nomePosto(o.Posto))}${o.CupomNumero ? ' – cupom fiscal nº ' + esc(o.CupomNumero) : ''}${o.CriadoPor ? ' – aberta por ' + esc(o.CriadoPor) : ''}${o.FechadoPor ? ', fechada por ' + esc(o.FechadoPor) + (o.CaixaNome ? ' (caixa ' + esc(o.CaixaNome) + ')' : '') : ''}</span></div>${o.Id ? seloStatus(o.Status) : ''}</div>
+  V(`<div class="cab"><div><h1>${o.Id ? 'O.S. nº ' + esc(o.Numero) : 'Nova O.S.'}</h1><span class="suave peq">${esc(nomePosto(o.Posto))}${o.CupomNumero ? ' – ' + esc(o.CupomModelo || 'cupom fiscal') + ' nº ' + esc(o.CupomNumero) : ''}${o.CupomPdf ? ` – <a href="${esc(o.CupomPdf)}" target="_blank" rel="noopener">📄 ver PDF</a>` : (o.CupomNumero ? ' – <span class="selo">PDF pendente</span>' : '')}${o.CriadoPor ? ' – aberta por ' + esc(o.CriadoPor) : ''}${o.FechadoPor ? ', fechada por ' + esc(o.FechadoPor) + (o.CaixaNome ? ' (caixa ' + esc(o.CaixaNome) + ')' : '') : ''}</span></div>${o.Id ? seloStatus(o.Status) : ''}</div>
     ${(() => { const pz = prazoOS(o); return pz ? `<div class="parecidos" style="${pz.atrasada ? 'border-color:var(--alerta);background:#fdecec' : ''}"><b>${pz.atrasada ? '⚠️ O.S. atrasada' : '⏱ O.S. não concluída'}</b> – aberta em ${esc(pz.iniTxt)} (há ${esc(pz.aberta)}). Prazo para concluir: <b>${esc(pz.fimTxt)}</b> (${pz.horas} h) – ${pz.atrasada ? `<b class="erro-campo">vencido há ${esc(pz.resta)}</b>` : `faltam ${esc(pz.resta)}`}.</div>` : ''; })()}
+    ${o.CupomSemCliente === 'SIM' ? `<div class="parecidos" style="border-color:var(--alerta);background:#fdecec"><b>⚠️ Baixa no PDV não foi no cadastro do cliente.</b> O documento ${esc(o.CupomModelo || 'cupom fiscal')} nº ${esc(o.CupomNumero)} saiu para consumidor padrão no B2Click. A venda está no histórico deste cliente aqui no app${(D.cli[o.ClienteId] || {}).Codigo ? ' (cód. B2Click ' + esc(D.cli[o.ClienteId].Codigo) + ')' : ''}; corrija no B2Click se precisar.</div>` : ''}
     ${o.Status === 'EXCLUIDA' ? `<div class="parecidos"><b>O.S. excluída</b> em ${dataBR(o.ExcluidoEm)} por ${esc(o.ExcluidoPor)}. Motivo: ${esc(o.MotivoExclusao)}</div>` : ''}
     <div class="bloco"><h2>Cliente e veículo</h2>
       <div class="campo"><span class="rot">Cliente</span>${ed ? `<button class="btn" id="osCli" style="justify-content:flex-start">${c ? esc(c.Nome) : o.ClienteNome ? esc(o.ClienteNome) : 'Escolher cliente'}</button>` : `<b>${esc(o.ClienteNome)}</b>`}</div>
@@ -1870,8 +1871,11 @@ function telaImportar() {
     <div class="bloco"><p>Use o relatório de estoque do B2Click (Excel ou CSV) com código, código de barras, nome, preço de venda, preço de compra e estoque. É assim que entra estoque no app: cada importação atualiza os saldos, guarda o histórico e sinaliza as divergências.</p>
     <p class="suave peq">Aceita planilha (Excel/CSV) ou o relatório em PDF. Com o padrão de colunas salvo, é só anexar, conferir e importar.</p>
     ${listaNomes(postoAtual().Lideres).length ? `<div class="campo" style="max-width:24rem;margin-bottom:.7rem"><label for="iResp">Quem está importando (líder de pista / triagem) *</label><select id="iResp"><option value="">Escolha…</option>${listaNomes(postoAtual().Lideres).map(n => `<option${n === S.ultimoResp ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></div>` : ''}
-    <input type="file" id="iArq" accept=".xlsx,.xls,.csv,.txt,.pdf"></div><div id="iPasso"></div>`);
+    <input type="file" id="iArq" accept=".xlsx,.xls,.csv,.txt,.pdf"></div><div id="iPasso"></div>
+    ${pode('cupom') ? `<div class="bloco"><h2>Cupons NFC-e / NF-e do dia (PDF)</h2><p class="suave peq">Escolha os PDFs (pode marcar vários). Cada um é anexado à sua O.S. pelo nº do cupom que o caixa informou na baixa (ou pela chave / nº da O.S.) e o estoque é baixado se ainda não foi.</p>
+    <input type="file" id="iCup" accept="application/pdf,.pdf" multiple><div id="iCupRes" style="margin-top:.6rem"></div></div>` : ''}`);
   if ($('#iResp')) $('#iResp').onchange = () => { S.ultimoResp = $('#iResp').value; };
+  if ($('#iCup')) $('#iCup').onchange = e => ocupado(null, () => anexarCuponsLote(e.target.files, $('#iCupRes')));
   $('#iArq').onchange = e => ocupado(null, async () => {
     const arq = e.target.files[0];
     if (!arq) return;
@@ -2126,7 +2130,7 @@ function telaCombustiveis() {
 function telaMais() {
   const it = [
     pode('cadastro') && ['modelos', '🚚', 'Catálogo de veículos', 'Modelos com óleo e filtros que usam'],
-    pode('os_fechar') && ['cupom', '🧾', 'Cupom fiscal (PDF)', 'Cadastra cliente e produtos e liga à O.S. pelo número'],
+    pode('cupom') && ['cupom', '🧾', 'Cupom NFC-e / NF-e (PDF)', 'Anexa o PDF à O.S. (pelo nº do cupom da baixa) e baixa o estoque'],
     pode('extrato') && ['extrato', '📄', 'Extrato de consumo', 'Por cliente, placa, pedido ou produto'],
     pode('lembretes') && ['lembretes', '🔔', 'Lembretes e pós-venda', 'Troca de óleo, aniversário e pesquisa'],
     pode('dashboard') && ['dashboard', '📊', 'Painel', 'Faturamento, trocas, produtos e clientes'],
@@ -2245,7 +2249,7 @@ function parsearCupom(linhas) {
   const L = linhas.map(maiusc);
   const r = { numero: '', chave: '', data: '', total: 0, documento: '', nome: '', placa: '', osNumero: '', km: '', itens: [] };
   for (const l of L) { const d = dig(l); if (d.length === 44 && /^\d{2}/.test(d)) { r.chave = d; break; } }
-  if (r.chave) r.numero = String(Number(r.chave.slice(25, 34)));
+  if (r.chave) { r.numero = String(Number(r.chave.slice(25, 34))); r.modelo = r.chave.slice(20, 22) === '55' ? 'NF-e' : r.chave.slice(20, 22) === '65' ? 'NFC-e' : ''; }
   else for (const l of L) {
     const m = l.match(/(?:NFC-?E|CUPOM|CF-?E|EXTRATO|DOCUMENTO)\D{0,15}N[O°º.]*\s*:?\s*(\d{1,9})/) || l.match(/\bNUMERO\s*:?\s*(\d{1,9})/) || l.match(/\bN[O°º]\.?\s*:?\s*(\d{3,9})\b.*SERIE/);
     if (m) { r.numero = String(Number(m[1])); break; }
@@ -2269,6 +2273,7 @@ function parsearCupom(linhas) {
     const prox = L[achou.i + 1] || '';
     r.nome = (nomeLinha || (/^[A-Z][A-Z .'&-]{4,}$/.test(depois) ? depois : '') || (/^[A-Z][A-Z .'&-]{4,}$/.test(prox) && !/CONSUMIDOR|ENDERECO|RUA|AV\b/.test(prox) ? prox : '')).trim();
   }
+  r.consumidorPadrao = !r.documento || L.some(l => /CONSUMIDOR\s+(NAO|N\.?)\s*IDENTIFICADO|CONSUMIDOR\s+PADRAO|CONSUMIDOR\s+FINAL\s*$|CLIENTE\s+PADRAO/.test(l));
   const iPlaca = L.findIndex(l => /PLACA/.test(l));
   const placaRe = /(?:^|[^A-Z0-9])([A-Z]{3})-?(\d[A-Z0-9]\d{2})(?![A-Z0-9])/;
   const ordem = iPlaca >= 0 ? [iPlaca].concat(L.map((_, i) => i).filter(i => i !== iPlaca)) : L.map((_, i) => i);
@@ -2296,10 +2301,40 @@ function itemDoCupom(it) {
   const nome = p ? p.Nome : it.desc;
   return { codigo: p ? String(p.Codigo) : String(it.codigo || ''), nome, tipo: adivinharTipo(nome + ' ' + (p && p.Grupo || '')), qtd: it.qtd, preco: it.preco, alternativas: [], noCadastro: !!p };
 }
+function arquivoBase64(arq) { return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1] || ''); fr.onerror = () => rej(new Error('Não consegui ler o arquivo.')); fr.readAsDataURL(arq); }); }
+async function anexarPdfCupom(osId, c, arq) {
+  const j = await api('anexarCupom', { id: osId, chave: c.chave, numero: c.numero, data: c.dataHora || c.data, total: c.total, modelo: c.modelo || '', semCliente: !!c.consumidorPadrao, pdf: arq ? await arquivoBase64(arq) : '', pdfNome: arq ? arq.name : '' });
+  if (j.erro) throw new Error(j.erro);
+  aplicarEstoque(j.estoque);
+  return j;
+}
+/* Triagem/caixa: anexa vários PDFs de NFC-e ou NF-e de uma vez às O.S. (acha pelo nº do cupom digitado na baixa, pela chave ou pelo nº da O.S.). */
+async function anexarCuponsLote(arqs, el) {
+  const res = [];
+  for (const [k, arq] of [...arqs].entries()) {
+    el.innerHTML = `<p class="suave peq">Lendo ${k + 1} de ${arqs.length}: ${esc(arq.name)}…</p>` + tabelaRes(res);
+    try {
+      const linhas = await lerPdfLinhas(arq);
+      if (!linhas.join('').trim()) throw new Error('PDF sem texto (foto)');
+      const c = parsearCupom(linhas);
+      const f = await api('acharOSCupom', { numero: c.numero, chave: c.chave, osNumero: c.osNumero, posto: S.posto });
+      if (f.erro) throw new Error(f.erro);
+      if (!f.os) { res.push([arq.name, (c.modelo || 'Cupom') + ' ' + (c.numero || '?'), '—', 'O.S. não encontrada: confira o nº do cupom na baixa do caixa']); continue; }
+      if (f.os.CupomPdf && f.os.CupomChave === c.chave) { res.push([arq.name, (c.modelo || 'Cupom') + ' ' + c.numero, 'nº ' + f.os.Numero, 'já estava anexado']); continue; }
+      const j = await anexarPdfCupom(f.os.Id, c, arq);
+      res.push([arq.name, (c.modelo || 'Cupom') + ' ' + c.numero, 'nº ' + j.os.Numero + ' – ' + (j.os.ClienteNome || ''), 'anexado' + (j.estoque && j.estoque.length ? ', baixa de ' + j.estoque.length + ' produto(s)' : '') + (c.consumidorPadrao ? ' – ATENÇÃO: no PDV saiu para consumidor padrão (ficou no histórico do cliente da O.S.)' : '')]);
+    } catch (e) { res.push([arq.name, '—', '—', 'erro: ' + e.message]); }
+  }
+  el.innerHTML = `<p><b>${res.filter(r => /^anexado/.test(r[3])).length} de ${res.length} anexado(s).</b></p>` + tabelaRes(res);
+  function tabelaRes(l) { return l.length ? `<div class="rolar"><table class="tab"><thead><tr><th>Arquivo</th><th>Documento</th><th>O.S.</th><th>Resultado</th></tr></thead><tbody>${l.map(r => `<tr>${r.map((x, i) => `<td class="${i === 3 && /erro|não|ATENÇÃO/.test(x) ? 'erro-campo' : ''}">${esc(x)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : ''; }
+}
 function telaCupom(arg = {}) {
   V(`<div class="cab"><h1>Cupom fiscal</h1></div>
-    <div class="bloco"><p>Escolha o PDF do cupom fiscal emitido no B2Click. O app lê o cliente, a placa, o número da O.S. (perto da placa) e os produtos. Você confere tudo antes de gravar.</p>
-    <input type="file" id="cpArq" accept="application/pdf,.pdf"></div><div id="cpRev"></div>`);
+    <div class="bloco"><p>Escolha o PDF da NFC-e ou NF-e emitida no B2Click. O app lê o cliente, a placa, o número da O.S. (perto da placa) e os produtos. Você confere tudo antes de gravar.</p>
+    <input type="file" id="cpArq" accept="application/pdf,.pdf"></div>
+    <div class="bloco"><h2>Vários de uma vez</h2><p class="suave peq">Para a triagem: escolha os PDFs das NFC-e / NF-e do dia. O app acha cada O.S. pelo nº do cupom que o caixa informou na baixa (ou pela chave / nº da O.S.), anexa o PDF e baixa o estoque se ainda não baixou.</p>
+    <input type="file" id="cpLote" accept="application/pdf,.pdf" multiple><div id="cpLoteRes" style="margin-top:.6rem"></div></div><div id="cpRev"></div>`);
+  $('#cpLote').onchange = e => ocupado(null, () => anexarCuponsLote(e.target.files, $('#cpLoteRes')));
   $('#cpArq').onchange = e => ocupado(null, async () => {
     const arq = e.target.files[0];
     if (!arq) return;
@@ -2308,16 +2343,23 @@ function telaCupom(arg = {}) {
     if (!linhas.join('').trim()) throw new Error('Este PDF não tem texto (parece uma foto). Use o PDF gerado pelo B2Click.');
     const c = parsearCupom(linhas);
     if (arg.osNumero) c.osNumero = String(arg.osNumero);
-    await revisarCupom(c, linhas, arq.name);
+    await revisarCupom(c, linhas, arq.name, arq);
   });
 }
-async function revisarCupom(c, linhas, nomeArq) {
-  const R = { c, itens: c.itens.map(itemDoCupom), os: null, modo: 'nova', clienteId: '', novo: { Codigo: '', Documento: c.documento, Nome: c.nome, WhatsApp: '', AceitaMsg: 'NAO' }, placa: c.placa, km: c.km };
+async function revisarCupom(c, linhas, nomeArq, arq) {
+  const R = { arq, c, itens: c.itens.map(itemDoCupom), os: null, modo: 'nova', clienteId: '', novo: { Codigo: '', Documento: c.documento, Nome: c.nome, WhatsApp: '', AceitaMsg: 'NAO' }, placa: c.placa, km: c.km };
   const porDoc = c.documento ? D.clientes.find(x => dig(x.Documento) === c.documento) : null;
   const porPlaca = c.placa && D.veiPorPlaca[c.placa] ? D.cli[D.veiPorPlaca[c.placa].ClienteId] : null;
   R.clienteId = (porDoc || porPlaca || {}).Id || '';
   const buscarOS = async () => {
     R.os = null; R.modo = 'nova';
+    const f = await api('acharOSCupom', { numero: c.numero, chave: c.chave, osNumero: c.osNumero, posto: S.posto });
+    if (f.os && (f.como === 'cupom' || f.como === 'chave')) {
+      R.os = prepararOS(f.os); R.modo = 'manter'; c.osNumero = String(f.os.Numero);
+      if (R.os.ClienteId) R.clienteId = R.os.ClienteId;
+      if (!R.placa && R.os.Placa) R.placa = R.os.Placa;
+      return;
+    }
     if (!c.osNumero) return;
     const j = await api('obterOS', { numero: c.osNumero });
     if (j.ok) {
@@ -2336,6 +2378,7 @@ async function revisarCupom(c, linhas, nomeArq) {
         <div><span class="rot">Número</span><br><b>${esc(c.numero || 'não encontrado')}</b></div><div><span class="rot">Data</span><br>${esc(dataBR(c.data) || '–')}</div>
         <div><span class="rot">Total do cupom</span><br><b>${c.total ? brl(c.total) : '–'}</b></div><div class="largo"><span class="rot">Chave</span><br><span class="peq">${esc(c.chave || 'não encontrada')}</span></div></div>
         <details style="margin-top:.6rem"><summary class="peq" style="cursor:pointer">Ver o texto lido do PDF (${linhas.length} linhas)</summary><pre class="peq rolar" style="white-space:pre-wrap;background:var(--sup2);padding:.6rem;border-radius:8px">${esc(linhas.join('\n'))}</pre></details></div>
+      ${c.consumidorPadrao ? `<div class="parecidos" style="border-color:var(--alerta);background:#fdecec"><b>⚠️ Venda no PDV para consumidor padrão.</b> O cupom não traz o CPF/CNPJ do cliente, então no B2Click a venda não ficou no cadastro dele. Ao gravar, o cupom entra no histórico do cliente da O.S. e a O.S. fica marcada com este aviso.</div>` : ''}
       <div class="bloco"><h2>O.S.</h2><div class="botoes" style="flex-wrap:nowrap;align-items:flex-end"><div class="campo" style="flex:1"><label for="cpOS">Número da O.S. no cupom</label><input id="cpOS" type="text" inputmode="numeric" value="${esc(c.osNumero)}"></div><button class="btn" id="cpOSb">Buscar</button></div>
         ${o ? `<p style="margin-top:.6rem">O.S. nº <b>${esc(o.Numero)}</b> – ${esc(o.ClienteNome)} – ${esc(fmtPlaca(o.Placa))} – ${brl(o.Total)} ${seloStatus(o.Status)}</p>
           ${o.CupomNumero ? `<p class="erro-campo">Esta O.S. já tem o cupom nº ${esc(o.CupomNumero)} vinculado.</p>` : ''}
@@ -2383,6 +2426,13 @@ async function revisarCupom(c, linhas, nomeArq) {
 }
 async function gravarCupom(R) {
   const c = R.c;
+  if (R.os && R.modo === 'manter') {
+    const j = await anexarPdfCupom(R.os.Id, c, R.arq);
+    toast(`${c.modelo || 'Cupom'} ${c.numero || ''} anexado à O.S. nº ${j.os.Numero}${j.estoque && j.estoque.length ? ' e baixa de ' + j.estoque.length + ' produto(s)' : ''}.`);
+    if (pode('os_editar')) ir('os-form', { id: j.os.Id }, { substituir: true }); else ir('cupom', {}, { substituir: true });
+    return;
+  }
+  if (!pode('os_fechar')) throw new Error('Não achei a O.S. deste cupom. Confira com o caixa o nº do cupom informado na baixa (ou o nº da O.S.).');
   if (!R.itens.length && R.modo !== 'manter') throw new Error('Nenhum produto para gravar.');
   if (R.placa && !placaValida(R.placa)) throw new Error('Confira a placa.');
   if (!c.numero && !c.chave && !await confirmar('Não achei o número nem a chave do cupom. Gravar mesmo assim?', 'Gravar')) return;
@@ -2431,6 +2481,7 @@ async function gravarCupom(R) {
   if (j.erro) throw new Error(j.erro);
   if (j.veiculo) { upsert('veiculos', j.veiculo); aposSalvar(); }
   aplicarEstoque(j.estoque);
+  if (R.arq) await anexarPdfCupom(j.os.Id, c, R.arq).catch(e => toast('O.S. gravada, mas o PDF não foi anexado: ' + e.message, 'erro'));
   toast(`Cupom registrado na O.S. nº ${j.os.Numero}${j.estoque && j.estoque.length ? ' e baixa de ' + j.estoque.length + ' produto(s) no estoque' : ''}.`);
   ir('os-form', { id: j.os.Id }, { substituir: true });
   if (pode('imprimir')) setTimeout(async () => {
