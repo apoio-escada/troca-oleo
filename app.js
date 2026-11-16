@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.9.3 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.10.0 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.9.3';
+const VERSAO_APP = '1.10.0';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -83,6 +83,16 @@ const precoDe = (p, pag) => (pag || (S.osAtual && S.osAtual.Pagamento)) === 'PRA
 const COMB_PADRAO = [{ nome: 'Gasolina', un: 'L' }, { nome: 'Etanol', un: 'L' }, { nome: 'Diesel', un: 'L' }, { nome: 'ARLA 32 granel', un: 'L' }, { nome: 'Óleo Mobil granel', un: 'L' }];
 function combustiveisDe(posto) { try { const l = JSON.parse((S.postos.find(p => p.Codigo === posto) || {}).Combustiveis || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } }
 const barrasDe = it => String(it.barras || ((D.prodCod || {})[it.codigo] || {}).Barras || '').split(/[;,\s]+/)[0] || '';
+function prazoOS(o) {
+  if (!o || o.Status !== 'ABERTA' || !o.CriadoEm) return null;
+  const m = String(o.CriadoEm).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  if (!m) return null;
+  const ini = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]), horas = num(postoAtual(o.Posto).PrazoOSHoras) || 24;
+  const fim = new Date(ini.getTime() + horas * 36e5), agora = new Date();
+  const dur = ms => { const t = Math.round(Math.abs(ms) / 6e4), d = Math.floor(t / 1440), h = Math.floor(t % 1440 / 60), mi = t % 60; return [d && d + ' dia' + (d > 1 ? 's' : ''), h && h + ' h', !d && mi + ' min'].filter(Boolean).join(' '); };
+  const fmt = d => d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  return { ini, fim, horas, atrasada: agora > fim, aberta: dur(agora - ini), resta: dur(fim - agora), iniTxt: fmt(ini), fimTxt: fmt(fim) };
+}
 const listaNomes = s => String(s || '').split(/[,;\n]+/).map(x => x.trim()).filter(Boolean);
 function postoAtual(cod) { return S.postos.find(p => p.Codigo === (cod || S.posto)) || { Codigo: cod || S.posto, Nome: cod || S.posto || '' }; }
 function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
@@ -1086,7 +1096,7 @@ function escanear() {
 /* ============ ORDENS DE SERVIÇO ============ */
 function seloStatus(s) { return s === 'FECHADA' ? '<span class="selo ok">fechada</span>' : s === 'EXCLUIDA' ? '<span class="selo alerta">excluída</span>' : '<span class="selo oleo">aberta</span>'; }
 function linhaOS(o) {
-  return `<li><button class="linha-btn" data-osid="${esc(o.Id)}">${o.Placa ? placaHtml(o.Placa) : ''}<span class="cresce"><span class="tit">Nº ${esc(o.Numero)} – ${esc(o.ClienteNome || '')}</span><span class="sub">${dataBR(o.Data)}${o.Posto !== S.posto ? ' – ' + esc(nomePosto(o.Posto)) : ''}</span></span><span style="text-align:right"><b class="num">${brl(o.Total)}</b><br>${seloStatus(o.Status)}${o.Status === 'ABERTA' || (o.Status !== 'EXCLUIDA' && !o.CupomNumero) ? (o.LancadaEm ? ' <span class="selo ok">no B2Click</span>' : ' <span class="selo">a lançar</span>') : ''}</span></button></li>`;
+  return `<li><button class="linha-btn" data-osid="${esc(o.Id)}">${o.Placa ? placaHtml(o.Placa) : ''}<span class="cresce"><span class="tit">Nº ${esc(o.Numero)} – ${esc(o.ClienteNome || '')}</span><span class="sub">${dataBR(o.Data)}${o.Posto !== S.posto ? ' – ' + esc(nomePosto(o.Posto)) : ''}</span></span><span style="text-align:right"><b class="num">${brl(o.Total)}</b><br>${seloStatus(o.Status)}${(prazoOS(o) || {}).atrasada ? ' <span class="selo alerta">atrasada</span>' : ''}${o.Status === 'ABERTA' || (o.Status !== 'EXCLUIDA' && !o.CupomNumero) ? (o.LancadaEm ? ' <span class="selo ok">no B2Click</span>' : ' <span class="selo">a lançar</span>') : ''}</span></button></li>`;
 }
 function ligarOS(el) { $$('[data-osid]', el).forEach(b => { b.onclick = () => ir('os-form', { id: b.dataset.osid }); }); }
 function presetDeBusca(q) {
@@ -1210,6 +1220,7 @@ function desenharOS() {
   const o = S.osAtual, ed = osEditavel(o), c = D.cli[o.ClienteId], vs = o.ClienteId ? (D.veiPorCli[o.ClienteId] || []) : [];
   const v = D.vei[o.VeiculoId], m = v ? D.mod[v.ModeloId] : null, podePreco = pode('os_fechar');
   V(`<div class="cab"><div><h1>${o.Id ? 'O.S. nº ' + esc(o.Numero) : 'Nova O.S.'}</h1><span class="suave peq">${esc(nomePosto(o.Posto))}${o.CupomNumero ? ' – cupom fiscal nº ' + esc(o.CupomNumero) : ''}${o.CriadoPor ? ' – aberta por ' + esc(o.CriadoPor) : ''}${o.FechadoPor ? ', fechada por ' + esc(o.FechadoPor) + (o.CaixaNome ? ' (caixa ' + esc(o.CaixaNome) + ')' : '') : ''}</span></div>${o.Id ? seloStatus(o.Status) : ''}</div>
+    ${(() => { const pz = prazoOS(o); return pz ? `<div class="parecidos" style="${pz.atrasada ? 'border-color:var(--alerta);background:#fdecec' : ''}"><b>${pz.atrasada ? '⚠️ O.S. atrasada' : '⏱ O.S. não concluída'}</b> – aberta em ${esc(pz.iniTxt)} (há ${esc(pz.aberta)}). Prazo para concluir: <b>${esc(pz.fimTxt)}</b> (${pz.horas} h) – ${pz.atrasada ? `<b class="erro-campo">vencido há ${esc(pz.resta)}</b>` : `faltam ${esc(pz.resta)}`}.</div>` : ''; })()}
     ${o.Status === 'EXCLUIDA' ? `<div class="parecidos"><b>O.S. excluída</b> em ${dataBR(o.ExcluidoEm)} por ${esc(o.ExcluidoPor)}. Motivo: ${esc(o.MotivoExclusao)}</div>` : ''}
     <div class="bloco"><h2>Cliente e veículo</h2>
       <div class="campo"><span class="rot">Cliente</span>${ed ? `<button class="btn" id="osCli" style="justify-content:flex-start">${c ? esc(c.Nome) : o.ClienteNome ? esc(o.ClienteNome) : 'Escolher cliente'}</button>` : `<b>${esc(o.ClienteNome)}</b>`}</div>
@@ -1420,9 +1431,28 @@ function desenharAcoesOS() {
   }
   if (o.Id && o.Status !== 'EXCLUIDA' && pode('os_fechar') && !o.CupomNumero) b.push('<button class="btn" id="aCup">Cupom fiscal</button>');
   if (o.Id && o.Status !== 'EXCLUIDA' && pode('os_excluir')) b.push('<button class="btn btn-perigo" id="aExc">Excluir</button>');
+  if (o.Id && o.Status === 'EXCLUIDA' && pode('os_excluir')) b.push('<button class="btn btn-oleo" id="aRes">Resgatar O.S.</button>');
+  if (o.Id && pode('os_editar')) b.push('<button class="btn" id="aNova">Nova O.S. igual a esta</button>');
   $('#osAcoes').innerHTML = b.join('');
   const on = (id, fn) => { const x = $('#' + id); if (x) x.onclick = e => ocupado(e.currentTarget, fn); };
   on('aSalvar', () => salvarOS(false));
+  on('aRes', async () => {
+    if (!await confirmar(`Resgatar a O.S. nº ${o.Numero}? ${o.CupomNumero || o.CupomChave ? 'Ela volta fechada com o cupom e os produtos saem do estoque de novo.' : 'Ela volta como estava antes de ser excluída.'}`, 'Resgatar')) return;
+    const j = await api('restaurarOS', { id: o.Id });
+    if (j.erro) throw new Error(j.erro);
+    Object.assign(o, prepararOS(j.os)); aplicarEstoque(j.estoque); S.osSujo = false;
+    toast('O.S. resgatada.'); desenharOS();
+  });
+  on('aNova', async () => {
+    if (!await garantirSalva()) return;
+    const b0 = S.osAtual, v = D.vei[b0.VeiculoId];
+    const nova = prepararOS({ Id: '', Posto: S.posto, Numero: '', Status: 'NOVA', Data: hojeISO(), ClienteId: b0.ClienteId, ClienteNome: b0.ClienteNome, VeiculoId: v ? b0.VeiculoId : '', Placa: v ? b0.Placa : '',
+      Km: '', TrocaOleo: b0.TrocaOleo ? 'SIM' : 'NAO', Pagamento: b0.Pagamento || 'VISTA', Desconto: 0, Obs: '',
+      Itens: b0.Itens.map(i => { const x = D.prodCod[i.codigo]; return { codigo: i.codigo, barras: i.barras || '', nome: x ? x.Nome : i.nome, tipo: i.tipo, qtd: num(i.qtd), preco: x ? precoDe(x, b0.Pagamento) : num(i.preco), alternativas: i.alternativas || [] }; }) });
+    S.osAtual = nova; S.osSujo = true;
+    ir('os-form', { rascunho: true });
+    toast(`Nova O.S. com os itens da nº ${b0.Numero}. Confira o KM e os preços e salve.`);
+  });
   on('aCup', async () => { if (!await garantirSalva()) return; ir('cupom', { osNumero: S.osAtual.Numero }); });
   on('aFechar', () => salvarOS(true));
   on('aImp', async () => { if (!await garantirSalva()) return; await menuImprimir(fmt => docOS(S.osAtual, fmt), 'O.S. ' + S.osAtual.Numero); });
@@ -1968,7 +1998,7 @@ async function telaConfig() {
   const SEC = {
     dados: { t: 'Dados do posto', c: [['Nome', 'Nome fantasia do posto'], ['CodigoPosto', 'Código do posto (ex.: 16)'], ['CNPJ', 'CNPJ'], ['Endereco', 'Endereço (aparece na tela de descanso e nas O.S.)'], ['Ativo', 'Situação', 'sel', ['SIM', 'NAO']], ['Emails', 'E-mails do posto (separe por vírgula)'], ['EmailsGerente', 'E-mails do gerente'], ['Caixas', 'Caixas – nomes para escolher ao fechar a O.S. (separe por vírgula)'], ['Lideres', 'Líderes de pista e triagem – nomes para escolher na importação e no ajuste de estoque (separe por vírgula)']], copiar: ['Emails', 'EmailsGerente', 'Caixas', 'Lideres'] },
     avisos: { t: 'Avisos e mensagens', c: [['TeamsWebhook', 'Link do webhook do Teams (Power Automate)'], ['MsgTroca', 'Mensagem do lembrete de troca', 'area'], ['MsgAniversario', 'Mensagem de aniversário', 'area'], ['MsgPosVenda', 'Mensagem de pós-venda', 'area'], ['MsgOS', 'Mensagem da O.S. no WhatsApp', 'area']], copiar: ['TeamsWebhook', 'MsgTroca', 'MsgAniversario', 'MsgPosVenda', 'MsgOS'] },
-    regras: { t: 'Regras', c: [['VenderSemEstoque', 'Vender sem estoque', 'sel', ['SIM', 'NAO']], ['ImpressaoPadrao', 'Onde imprimir por padrão', 'impr'], ['ImpressoraPadrao', 'Formato padrão', 'sel', ['80mm', 'A4']], ['AntecedenciaDias', 'Avisar a troca quantos dias antes'], ['DiasPosVenda', 'Pós-venda quantos dias depois da O.S.'], ['IntervaloKm', 'Troca padrão a cada (km)'], ['IntervaloDias', 'Troca padrão a cada (dias)']], copiar: ['VenderSemEstoque', 'ImpressaoPadrao', 'ImpressoraPadrao', 'AntecedenciaDias', 'DiasPosVenda', 'IntervaloKm', 'IntervaloDias'] }
+    regras: { t: 'Regras', c: [['VenderSemEstoque', 'Vender sem estoque', 'sel', ['SIM', 'NAO']], ['ImpressaoPadrao', 'Onde imprimir por padrão', 'impr'], ['ImpressoraPadrao', 'Formato padrão', 'sel', ['80mm', 'A4']], ['AntecedenciaDias', 'Avisar a troca quantos dias antes'], ['DiasPosVenda', 'Pós-venda quantos dias depois da O.S.'], ['IntervaloKm', 'Troca padrão a cada (km)'], ['IntervaloDias', 'Troca padrão a cada (dias)'], ['PrazoOSHoras', 'Prazo para concluir a O.S. (horas, padrão 24)']], copiar: ['PrazoOSHoras', 'VenderSemEstoque', 'ImpressaoPadrao', 'ImpressoraPadrao', 'AntecedenciaDias', 'DiasPosVenda', 'IntervaloKm', 'IntervaloDias'] }
   };
   const PAD = { MsgTroca: j.padrao.troca, MsgAniversario: j.padrao.aniversario, MsgPosVenda: j.padrao.posvenda, MsgOS: j.padrao.os };
   const campo = (p, [c, r, t, ops]) => {
