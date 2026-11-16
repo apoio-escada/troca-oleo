@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.11.0 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.13.0 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.11.0';
+const VERSAO_APP = '1.13.0';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -270,7 +270,7 @@ window.addEventListener('popstate', () => {
     PILHA.pop(); const t = PILHA[PILHA.length - 1]; render(t.tela, t.arg);
   }
 });
-const NAV_DE = { estoque: 'mais', cupom: 'os', cliente: 'clientes', 'cliente-form': 'clientes', 'os-form': 'os', modelos: 'mais', extrato: 'mais', lembretes: 'mais', combustiveis: 'mais', usuarios: 'mais', config: 'mais' };
+const NAV_DE = { estoque: 'mais', cupom: 'os', cliente: 'clientes', 'cliente-form': 'clientes', 'os-form': 'os', modelos: 'mais', extrato: 'mais', lembretes: 'mais', combustiveis: 'mais', catalogo: 'mais', usuarios: 'mais', config: 'mais' };
 function render(tela, arg) {
   S.tela = tela;
   $$('#nav button').forEach(b => b.classList.toggle('ativo', b.dataset.t === (NAV_DE[tela] || tela)));
@@ -384,7 +384,7 @@ function montarShell() {
     pode('os_editar') && { t: 'os', ic: '🧾', r: 'O.S.' },
     { t: 'produtos', ic: '🛢️', r: 'Produtos' },
     pode('dashboard') && { t: 'dashboard', ic: '📊', r: 'Painel' },
-    pode('importar') && !pode('cadastro') && { t: 'importar', ic: '⬆️', r: 'Importar' },
+    pode('importar') && (!pode('cadastro') || S.user.perfil === 'IMPORTACAO') && { t: 'importar', ic: '⬆️', r: 'Importar' },
     { t: 'mais', ic: '☰', r: 'Mais' }
   ].filter(Boolean);
   $('#app').innerHTML = `<header class="topo${S.postos.length > 1 ? ' multi' : ''}"><button class="marca" id="tMarca" aria-label="Ir para o início">${placaHtml('OLE0A26')}<span class="txt"><b>${esc(nomePosto())}</b><small>👤 ${esc(S.user.nome || S.user.login)}${S.user.nome && !norm(S.user.nome).includes(norm(S.user.login)) ? ' · ' + esc(S.user.login) : ''}</small></span></button>${sel}<button class="sync" id="btnSync" aria-label="Atualizar dados">⟳</button></header>
@@ -1111,7 +1111,7 @@ function presetDeBusca(q) {
 async function telaOSLista() {
   let aba = S.abaOS || 'ABERTA', lista = [];
   const abas = [['ABERTA', 'Abertas'], ['HOJE', 'Hoje'], ['30', 'Últimos 30 dias']].concat(pode('os_excluir') ? [['EXCLUIDA', 'Excluídas']] : []);
-  V(`<div class="cab"><h1>Ordens de serviço</h1><div class="botoes">${pode('os_fechar') ? '<button class="btn" id="oCup">Cupom fiscal</button>' : ''}<button class="btn btn-oleo" id="oNova">Nova O.S.</button></div></div>
+  V(`<div class="cab"><h1>Ordens de serviço</h1><div class="botoes"><button class="btn" id="oRel">Relatório do dia</button>${pode('cupom') ? '<button class="btn" id="oCup">Cupom fiscal</button>' : ''}<button class="btn btn-oleo" id="oNova">Nova O.S.</button></div></div>
     <div class="abas" id="oAbas">${abas.map(([k, n]) => `<button data-a="${k}" class="${k === aba ? 'ativo' : ''}">${n}</button>`).join('')}</div>
     <input type="search" id="oq" placeholder="Filtrar por placa, cliente ou número" autocomplete="off">
     <div class="bloco" style="margin-top:.8rem"><ul class="lista" id="oLista"><li class="vazio">Carregando…</li></ul></div>`);
@@ -1133,8 +1133,37 @@ async function telaOSLista() {
   $$('#oAbas button').forEach(b => { b.onclick = () => { aba = S.abaOS = b.dataset.a; $$('#oAbas button').forEach(x => x.classList.toggle('ativo', x === b)); carregar().catch(e => toast(e.message, 'erro')); }; });
   $('#oNova').onclick = () => { S.osAtual = null; ir('os-form', {}); };
   if ($('#oCup')) $('#oCup').onclick = () => ir('cupom', {});
+  $('#oRel').onclick = e => ocupado(e.currentTarget, relatorioDia);
   $('#oq').oninput = debounce(filtrar, 120);
   await carregar();
+}
+/* Relatório das O.S. geradas no dia, com os cupons/NF vinculados. */
+async function relatorioDia() {
+  const dia = await pedirTexto('Relatório de O.S. do dia', 'Dia', hojeISO(), 'date');
+  if (!dia) return;
+  const j = await api('listarOS', { de: dia, ate: dia, limite: 2000 });
+  if (j.erro) throw new Error(j.erro);
+  const l = j.lista.slice().sort((a, b) => num(a.Numero) - num(b.Numero));
+  const st = o => o.Status === 'FECHADA' ? 'Fechada' : o.Status === 'ABERTA' ? 'Aberta' : o.Status;
+  const cup = o => o.CupomNumero ? `${o.CupomModelo || 'Cupom'} ${o.CupomNumero}` : '';
+  const anexo = o => [o.CupomPdf && 'PDF', o.CupomXml && 'XML'].filter(Boolean).join('+') || (o.CupomNumero ? 'pendente' : '');
+  const hora = o => String(o.CriadoEm || '').slice(11, 16);
+  const tot = l.reduce((t, o) => t + num(o.Total), 0), comCup = l.filter(o => o.CupomNumero).length;
+  const titulo = `O.S. de ${dataBR(dia)} – ${nomePosto()}`;
+  const html = htmlDoc(`<table class="sem" style="border-bottom:3px solid #4A1B6D"><tr><td><h1>Relatório de O.S. do dia</h1><span class="peq">${esc(nomePosto())} – ${dataBR(dia)}</span></td><td class="r">${l.length} O.S. – ${brl(tot)}<br>${comCup} com cupom, ${l.length - comCup} sem cupom</td></tr></table>
+    <table><tr><th>O.S.</th><th>Hora</th><th>Cliente</th><th>Placa</th><th>Situação</th><th>Caixa</th><th>Cupom / NF</th><th>Anexo</th><th class="r">Total</th></tr>
+    ${l.map(o => `<tr><td>${esc(o.Numero)}</td><td>${esc(hora(o))}</td><td>${esc(o.ClienteNome)}${o.CupomSemCliente === 'SIM' ? ' <b>(PDV s/ cliente)</b>' : ''}</td><td>${esc(fmtPlaca(o.Placa))}</td><td>${st(o)}</td><td>${esc(o.CaixaNome || '')}</td><td>${esc(cup(o)) || '—'}</td><td>${esc(anexo(o))}</td><td class="r">${brl(o.Total)}</td></tr>`).join('')}
+    <tr><td colspan="8" class="r g">Total</td><td class="r g">${brl(tot)}</td></tr></table>`, 'A4', titulo);
+  const r = await perguntar(titulo, `<p>${l.length} O.S. – ${brl(tot)}. ${comCup} com cupom/NF, ${l.length - comCup} sem.</p>${l.length ? tabela(['O.S.', 'Cliente', 'Cupom / NF', 'Total'], l.map(o => [o.Numero + ' ' + st(o), o.ClienteNome, cup(o) || '—', brl(o.Total)])) : '<p class="vazio">Nenhuma O.S. neste dia.</p>'}`,
+    [{ rotulo: 'Fechar', valor: null }, { rotulo: 'Planilha', valor: 'xls' }, { rotulo: 'Imprimir / PDF', valor: 'imp', classe: 'btn-oleo' }]);
+  if (r === 'imp') await menuImprimir(() => html, titulo);
+  if (r === 'xls') {
+    await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+    const ws = window.XLSX.utils.aoa_to_sheet([['O.S.', 'Data', 'Hora', 'Cliente', 'Placa', 'Situação', 'Caixa', 'Modelo', 'Nº cupom/NF', 'Chave', 'Anexo', 'PDV s/ cliente', 'Total']]
+      .concat(l.map(o => [num(o.Numero), dataBR(o.Data), hora(o), o.ClienteNome, fmtPlaca(o.Placa), st(o), o.CaixaNome || '', o.CupomModelo || '', o.CupomNumero || '', o.CupomChave || '', anexo(o), o.CupomSemCliente === 'SIM' ? 'SIM' : '', num(o.Total)])));
+    const wb = window.XLSX.utils.book_new(); window.XLSX.utils.book_append_sheet(wb, ws, 'O.S.');
+    window.XLSX.writeFile(wb, nomeArquivo(titulo).replace(/\.pdf$/, '.xlsx'));
+  }
 }
 function prepararOS(o) {
   o.TrocaOleo = o.TrocaOleo === true || o.TrocaOleo === 'SIM';
@@ -1219,7 +1248,7 @@ function adicionarItemOS(p) {
 function desenharOS() {
   const o = S.osAtual, ed = osEditavel(o), c = D.cli[o.ClienteId], vs = o.ClienteId ? (D.veiPorCli[o.ClienteId] || []) : [];
   const v = D.vei[o.VeiculoId], m = v ? D.mod[v.ModeloId] : null, podePreco = pode('os_fechar');
-  V(`<div class="cab"><div><h1>${o.Id ? 'O.S. nº ' + esc(o.Numero) : 'Nova O.S.'}</h1><span class="suave peq">${esc(nomePosto(o.Posto))}${o.CupomNumero ? ' – ' + esc(o.CupomModelo || 'cupom fiscal') + ' nº ' + esc(o.CupomNumero) : ''}${o.CupomPdf ? ` – <a href="${esc(o.CupomPdf)}" target="_blank" rel="noopener">📄 ver PDF</a>` : (o.CupomNumero ? ' – <span class="selo">PDF pendente</span>' : '')}${o.CriadoPor ? ' – aberta por ' + esc(o.CriadoPor) : ''}${o.FechadoPor ? ', fechada por ' + esc(o.FechadoPor) + (o.CaixaNome ? ' (caixa ' + esc(o.CaixaNome) + ')' : '') : ''}</span></div>${o.Id ? seloStatus(o.Status) : ''}</div>
+  V(`<div class="cab"><div><h1>${o.Id ? 'O.S. nº ' + esc(o.Numero) : 'Nova O.S.'}</h1><span class="suave peq">${esc(nomePosto(o.Posto))}${o.CupomNumero ? ' – ' + esc(o.CupomModelo || 'cupom fiscal') + ' nº ' + esc(o.CupomNumero) : ''}${o.CupomPdf ? ` – <a href="${esc(o.CupomPdf)}" target="_blank" rel="noopener">📄 ver PDF</a>` : ''}${o.CupomXml ? ` – <a href="${esc(o.CupomXml)}" target="_blank" rel="noopener">🗎 ver XML</a>` : ''}${o.CupomNumero && !o.CupomPdf && !o.CupomXml ? ' – <span class="selo">PDF/XML pendente</span>' : ''}${o.CriadoPor ? ' – aberta por ' + esc(o.CriadoPor) : ''}${o.FechadoPor ? ', fechada por ' + esc(o.FechadoPor) + (o.CaixaNome ? ' (caixa ' + esc(o.CaixaNome) + ')' : '') : ''}</span></div>${o.Id ? seloStatus(o.Status) : ''}</div>
     ${(() => { const pz = prazoOS(o); return pz ? `<div class="parecidos" style="${pz.atrasada ? 'border-color:var(--alerta);background:#fdecec' : ''}"><b>${pz.atrasada ? '⚠️ O.S. atrasada' : '⏱ O.S. não concluída'}</b> – aberta em ${esc(pz.iniTxt)} (há ${esc(pz.aberta)}). Prazo para concluir: <b>${esc(pz.fimTxt)}</b> (${pz.horas} h) – ${pz.atrasada ? `<b class="erro-campo">vencido há ${esc(pz.resta)}</b>` : `faltam ${esc(pz.resta)}`}.</div>` : ''; })()}
     ${o.CupomSemCliente === 'SIM' ? `<div class="parecidos" style="border-color:var(--alerta);background:#fdecec"><b>⚠️ Baixa no PDV não foi no cadastro do cliente.</b> O documento ${esc(o.CupomModelo || 'cupom fiscal')} nº ${esc(o.CupomNumero)} saiu para consumidor padrão no B2Click. A venda está no histórico deste cliente aqui no app${(D.cli[o.ClienteId] || {}).Codigo ? ' (cód. B2Click ' + esc(D.cli[o.ClienteId].Codigo) + ')' : ''}; corrija no B2Click se precisar.</div>` : ''}
     ${o.Status === 'EXCLUIDA' ? `<div class="parecidos"><b>O.S. excluída</b> em ${dataBR(o.ExcluidoEm)} por ${esc(o.ExcluidoPor)}. Motivo: ${esc(o.MotivoExclusao)}</div>` : ''}
@@ -1232,7 +1261,7 @@ function desenharOS() {
         <div class="campo"><label for="osData">Data</label><input id="osData" type="date" value="${esc(o.Data)}" ${ed ? '' : 'disabled'}></div>
         <label class="check campo largo"><input type="checkbox" id="osTroca" ${o.TrocaOleo ? 'checked' : ''} ${ed ? '' : 'disabled'}><span>Troca de óleo do motor (calcula a próxima troca e o lembrete)</span></label>
       </div></div>
-    <div class="bloco"><div class="cab"><h2>Itens</h2>${ed && v ? '<button class="btn btn-peq" id="osFicha">Puxar ficha</button>' : ''}</div>
+    <div class="bloco"><div class="cab"><h2>Itens</h2><div class="botoes">${ed ? '<button class="btn btn-peq" id="osCat">Catálogo</button>' : ''}${ed && v ? '<button class="btn btn-peq" id="osFicha">Puxar ficha</button>' : ''}</div></div>
       ${ed ? `<div class="botoes" style="flex-wrap:nowrap"><input type="search" id="osBusca" placeholder="Código de barras, código ou nome" autocomplete="off"><button class="btn" id="osScan" aria-label="Ler código de barras">📷</button></div><div id="osRes"></div><button class="btn-link" id="osAvulso">+ Serviço ou item avulso</button>` : ''}
       <div id="osItens"></div>
       <div class="botoes" style="margin:.6rem 0 0;align-items:center"><span class="rot" style="margin:0">Pagamento</span>${[['VISTA', 'À vista'], ['PRAZO', 'A prazo']].map(([k, n]) => `<button class="btn btn-peq ${(o.Pagamento || 'VISTA') === k ? 'btn-oleo' : ''}" data-pag="${k}" ${ed ? '' : 'disabled'}>${n}</button>`).join('')}</div>
@@ -1247,6 +1276,7 @@ function desenharOS() {
   const sujo = () => { S.osSujo = true; };
   $('#osKm').oninput = () => { o.Km = dig($('#osKm').value); sujo(); };
   $('#osData').onchange = () => { o.Data = $('#osData').value; sujo(); };
+  if ($('#osCat')) $('#osCat').onclick = () => { const m = D.mod[(D.vei[o.VeiculoId] || {}).ModeloId]; ir('catalogo', { q: m ? [m.Marca, m.Modelo, m.Motor].filter(Boolean).join(' ') : '', paraOS: true }); };
   $('#osTroca').onchange = () => { o.TrocaOleo = $('#osTroca').checked; sujo(); };
   $('#osObs').oninput = () => { o.Obs = $('#osObs').value; sujo(); };
   $$('[data-pag]').forEach(b => { b.onclick = () => {
@@ -1872,8 +1902,8 @@ function telaImportar() {
     <p class="suave peq">Aceita planilha (Excel/CSV) ou o relatório em PDF. Com o padrão de colunas salvo, é só anexar, conferir e importar.</p>
     ${listaNomes(postoAtual().Lideres).length ? `<div class="campo" style="max-width:24rem;margin-bottom:.7rem"><label for="iResp">Quem está importando (líder de pista / triagem) *</label><select id="iResp"><option value="">Escolha…</option>${listaNomes(postoAtual().Lideres).map(n => `<option${n === S.ultimoResp ? ' selected' : ''}>${esc(n)}</option>`).join('')}</select></div>` : ''}
     <input type="file" id="iArq" accept=".xlsx,.xls,.csv,.txt,.pdf"></div><div id="iPasso"></div>
-    ${pode('cupom') ? `<div class="bloco"><h2>Cupons NFC-e / NF-e do dia (PDF)</h2><p class="suave peq">Escolha os PDFs (pode marcar vários). Cada um é anexado à sua O.S. pelo nº do cupom que o caixa informou na baixa (ou pela chave / nº da O.S.) e o estoque é baixado se ainda não foi.</p>
-    <input type="file" id="iCup" accept="application/pdf,.pdf" multiple><div id="iCupRes" style="margin-top:.6rem"></div></div>` : ''}`);
+    ${pode('cupom') ? `<div class="bloco"><h2>Cupons NFC-e / NF-e do dia (PDF ou XML)</h2><p class="suave peq">Escolha os PDFs ou XMLs (pode marcar vários). Cada um é anexado à sua O.S. pelo nº do cupom que o caixa informou na baixa (ou pela chave / nº da O.S.) e o estoque é baixado se ainda não foi.</p>
+    <input type="file" id="iCup" accept="application/pdf,.pdf,.xml,text/xml,application/xml" multiple><div id="iCupRes" style="margin-top:.6rem"></div></div>` : ''}`);
   if ($('#iResp')) $('#iResp').onchange = () => { S.ultimoResp = $('#iResp').value; };
   if ($('#iCup')) $('#iCup').onchange = e => ocupado(null, () => anexarCuponsLote(e.target.files, $('#iCupRes')));
   $('#iArq').onchange = e => ocupado(null, async () => {
@@ -2127,10 +2157,99 @@ function telaCombustiveis() {
   };
   carregar(); desenhar();
 }
+/* ============ CATÁLOGO DE APLICAÇÃO (fornecedores) ============ */
+const CAMPOS_CAT = [
+  ['CodigoFornecedor', 'Código do fornecedor (ex.: PSL55) *', /c[oó]d|refer|^ref\b|part ?n/], ['Produto', 'Produto / descrição', /produto|descri|item/], ['Tipo', 'Tipo (filtro de óleo, ar…)', /tipo|aplica[cç][aã]o do|linha|categoria/],
+  ['Marca', 'Marca do veículo', /marca|montadora|fabricante/], ['Modelo', 'Modelo do veículo / carreta', /modelo|ve[ií]culo|carreta|implemento/], ['Motor', 'Motor', /motor/], ['Anos', 'Ano(s)', /ano|per[ií]odo/],
+  ['CodigoProduto', 'Código no B2Click (se tiver)', /b2click|interno|nosso/], ['Obs', 'Observação', /obs|nota/]
+];
+const compacto = s => norm(s).replace(/ /g, '');
+function prodDoCatalogo(a) {
+  const c = String(a.CodigoProduto || '').trim();
+  if (c && (D.prodCod[c] || D.prodBar[c])) return D.prodCod[c] || D.prodBar[c];
+  const f = compacto(a.CodigoFornecedor);
+  return f.length >= 3 ? D.produtos.find(p => compacto(p.Nome).includes(f) || compacto(p.Codigo) === f) || null : null;
+}
+async function telaCatalogo(arg = {}) {
+  const pode_ = pode('catalogo');
+  V(`<div class="cab"><h1>Catálogo de aplicação</h1></div>
+    <div class="bloco"><div class="botoes" style="flex-wrap:nowrap"><input type="search" id="kq" placeholder="Veículo, motor, ano ou código (ex.: scania 124 / PSL55)" value="${esc(arg.q || '')}"><button class="btn btn-oleo" id="kB">Buscar</button></div>
+      <p class="suave peq">Procura em todas as planilhas de aplicação enviadas pelos fornecedores. Produto em verde = temos no cadastro.</p><div id="kRes"></div></div>
+    <div class="bloco"><h2>Catálogos enviados</h2><div id="kLista"><p class="suave peq">Carregando…</p></div></div>
+    ${pode_ ? `<div class="bloco"><h2>Anexar catálogo / planilha de fornecedor</h2>
+      <div class="campos"><div class="campo"><label for="kF">Fornecedor *</label><input id="kF" placeholder="Ex.: Tecfil, Fram, Wega, Mann, Lubrax"></div>
+      <div class="campo largo"><label for="kArq">Arquivo (planilha Excel/CSV ou PDF)</label><input type="file" id="kArq" accept=".xlsx,.xls,.csv,.pdf"></div>
+      <label class="check campo largo"><input type="checkbox" id="kSub"><span>Substituir o catálogo anterior deste fornecedor</span></label></div><div id="kMap"></div></div>` : ''}`);
+  const buscar = async () => {
+    const q = $('#kq').value.trim(); if (!q) return;
+    $('#kRes').innerHTML = '<p class="suave peq">Buscando…</p>';
+    const j = await api('buscarAplicacoes', { q, limite: 300 });
+    if (j.erro) throw new Error(j.erro);
+    const os = arg.paraOS && S.osAtual && osEditavel(S.osAtual);
+    $('#kRes').innerHTML = j.lista.length ? `<p class="peq">${j.total} aplicação(ões)${j.total > j.lista.length ? ' – mostrando ' + j.lista.length : ''}.</p><ul class="lista">${j.lista.map((a, i) => { const p = prodDoCatalogo(a); return `<li style="padding:.55rem .1rem"><b>${esc([a.Marca, a.Modelo, a.Motor].filter(Boolean).join(' '))}</b>${a.Anos ? ' <span class="suave peq">' + esc(a.Anos) + '</span>' : ''}<br>
+      <span class="peq">${esc(a.Tipo || 'Produto')}: <b>${esc(a.Fornecedor)} ${esc(a.CodigoFornecedor)}</b> ${esc(a.Produto)}</span>${a.Obs ? '<br><span class="suave peq">' + esc(a.Obs) + '</span>' : ''}
+      ${p ? `<br><span class="peq" style="color:var(--ok)">✔ ${esc(p.Nome)} – cód. ${esc(p.Codigo)} – ${brl(p.PrecoVenda)}${p._comb ? '' : ' – estoque ' + fmtQtd(p.Estoque)}</span>${os ? ` <button class="btn btn-peq btn-oleo" data-add="${i}">Adicionar na O.S.</button>` : ''}` : '<br><span class="suave peq">Não temos este código no cadastro de produtos.</span>'}</li>`; }).join('')}</ul>`
+      : '<p class="vazio">Nada encontrado. Tente menos palavras (ex.: só o modelo).</p>';
+    $$('#kRes [data-add]').forEach(b => { b.onclick = () => { const p = prodDoCatalogo(j.lista[+b.dataset.add]); if (p) { adicionarItemOS(p); toast('Adicionado na O.S.: ' + p.Nome); } }; });
+  };
+  const listar = async () => {
+    const j = await api('catalogos'); if (j.erro) throw new Error(j.erro);
+    S.catMapa = j.cfgMapa;
+    $('#kLista').innerHTML = j.lista.length ? `<ul class="lista">${j.lista.map(c => `<li style="display:flex;justify-content:space-between;gap:.6rem;padding:.5rem .1rem"><span><b>${esc(c.Fornecedor)}</b> – ${esc(c.Nome)}<br><span class="suave peq">${num(c.Linhas) ? c.Linhas + ' aplicação(ões)' : 'arquivo para consulta'} – ${dataBR(c.CriadoEm)} por ${esc(c.CriadoPor)}</span></span><span class="botoes" style="flex-wrap:nowrap">${c.Url ? `<a class="btn btn-peq" href="${esc(c.Url)}" target="_blank" rel="noopener">Abrir</a>` : ''}${pode_ ? `<button class="btn btn-peq btn-perigo" data-del="${esc(c.Id)}">Excluir</button>` : ''}</span></li>`).join('')}</ul>` : '<p class="vazio">Nenhum catálogo enviado ainda.</p>';
+    $$('#kLista [data-del]').forEach(b => { b.onclick = () => ocupado(b, async () => { if (!await confirmar('Excluir este catálogo e as aplicações dele?', 'Excluir', 'btn-perigo')) return; const r = await api('excluirCatalogo', { id: b.dataset.del }); if (r.erro) throw new Error(r.erro); toast('Catálogo excluído.'); listar(); }); });
+  };
+  $('#kB').onclick = e => ocupado(e.currentTarget, buscar);
+  $('#kq').onkeydown = e => { if (e.key === 'Enter') ocupado(null, buscar); };
+  if ($('#kArq')) $('#kArq').onchange = e => ocupado(null, async () => {
+    const arq = e.target.files[0]; if (!arq) return;
+    const forn = $('#kF').value.trim(); if (!forn) { e.target.value = ''; throw new Error('Informe o fornecedor antes de escolher o arquivo.'); }
+    const base = { fornecedor: forn, nome: arq.name, mime: arq.type || 'application/octet-stream', substituir: $('#kSub').checked };
+    if (/\.pdf$/i.test(arq.name)) {
+      const j = await api('enviarCatalogo', { ...base, tipo: 'PDF', arquivo: await arquivoBase64(arq), ultimo: true });
+      if (j.erro) throw new Error(j.erro);
+      toast('PDF guardado. Ele fica para consulta na lista (a busca por veículo usa as planilhas).'); e.target.value = ''; return listar();
+    }
+    await carregarScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+    const buf = await arq.arrayBuffer();
+    const wb = /\.(csv|txt)$/i.test(arq.name) ? window.XLSX.read(new TextDecoder('utf-8').decode(buf), { type: 'string', raw: true }) : window.XLSX.read(buf, { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]], linhas = window.XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+    let hi = linhas.slice(0, 25).findIndex(r => r.filter(c => /[a-z]/i.test(String(c))).length >= 3); if (hi < 0) hi = 0;
+    const cab = linhas[hi].map((c, i) => String(c || 'Coluna ' + (i + 1)).trim()), dados = linhas.slice(hi + 1).filter(r => r.some(c => String(c).trim()));
+    const mapa = {}, usados = new Set();
+    let salvo = null; try { salvo = JSON.parse(S.catMapa || 'null'); } catch (er) {}
+    if (salvo) Object.entries(salvo).forEach(([k, v]) => { if (v < cab.length) mapa[k] = v; });
+    else CAMPOS_CAT.forEach(([k, , re]) => { const i = cab.findIndex((c, j2) => !usados.has(j2) && re.test(norm(c))); if (i >= 0) { mapa[k] = i; usados.add(i); } });
+    const desenhar = () => {
+      $('#kMap').innerHTML = `<h3 style="margin-top:1rem">Colunas da planilha (${dados.length} linhas)</h3><div class="campos">${CAMPOS_CAT.map(([k, r]) => `<div class="campo"><label>${r}</label><select data-k="${k}"><option value="">(não usar)</option>${cab.map((c, i) => `<option value="${i}"${mapa[k] === i ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select></div>`).join('')}</div>
+        <h3>Prévia</h3>${tabela(CAMPOS_CAT.map(c => c[1].replace(/ \*| \(.*\)/g, '')), dados.slice(0, 5).map(r => CAMPOS_CAT.map(([k]) => String(mapa[k] !== undefined ? r[mapa[k]] : ''))))}
+        <label class="check" style="margin-top:.6rem"><input type="checkbox" id="kPad" checked><span>Salvar estas colunas como padrão</span></label>
+        <div class="botoes" style="margin-top:.8rem"><button class="btn btn-oleo" id="kGo">Enviar ${dados.length} linha(s)</button></div><p id="kProg" class="suave peq"></p>`;
+      $$('#kMap [data-k]').forEach(sl => { sl.onchange = () => { if (sl.value === '') delete mapa[sl.dataset.k]; else mapa[sl.dataset.k] = +sl.value; desenhar(); }; });
+      $('#kGo').onclick = ev => ocupado(ev.currentTarget, async () => {
+        if (mapa.CodigoFornecedor === undefined && mapa.Produto === undefined) throw new Error('Escolha a coluna do código do fornecedor (ou do produto).');
+        const rows = dados.map(r => { const o = {}; Object.entries(mapa).forEach(([k, i]) => { o[k] = r[i]; }); return o; });
+        let cat = null; const tam = 800;
+        for (let i = 0; i < rows.length || i === 0; i += tam) {
+          $('#kProg').textContent = `Enviando ${Math.min(i + tam, rows.length)} de ${rows.length}…`;
+          const j = await api('enviarCatalogo', { ...base, tipo: 'PLANILHA', catalogoId: cat && cat.Id, arquivo: !cat ? await arquivoBase64(arq) : '', linhas: rows.slice(i, i + tam), mapa: !cat && $('#kPad').checked ? mapa : null, ultimo: i + tam >= rows.length });
+          if (j.erro) throw new Error(j.erro);
+          cat = j.catalogo; base.substituir = false;
+          if (!rows.length) break;
+        }
+        $('#kProg').textContent = `Pronto: ${cat.Linhas} aplicação(ões) de ${cat.Fornecedor}.`;
+        toast('Catálogo enviado.'); listar();
+      });
+    };
+    desenhar();
+  });
+  await listar();
+  if (arg.q) await buscar();
+}
 function telaMais() {
   const it = [
     pode('cadastro') && ['modelos', '🚚', 'Catálogo de veículos', 'Modelos com óleo e filtros que usam'],
-    pode('cupom') && ['cupom', '🧾', 'Cupom NFC-e / NF-e (PDF)', 'Anexa o PDF à O.S. (pelo nº do cupom da baixa) e baixa o estoque'],
+    ['catalogo', '📚', 'Catálogo de aplicação (fornecedores)', 'Qual filtro/óleo serve em qual veículo ou carreta – planilhas e PDFs dos fornecedores'],
+    pode('cupom') && ['cupom', '🧾', 'Cupom NFC-e / NF-e (PDF ou XML)', 'Anexa o PDF à O.S. (pelo nº do cupom da baixa) e baixa o estoque'],
     pode('extrato') && ['extrato', '📄', 'Extrato de consumo', 'Por cliente, placa, pedido ou produto'],
     pode('lembretes') && ['lembretes', '🔔', 'Lembretes e pós-venda', 'Troca de óleo, aniversário e pesquisa'],
     pode('dashboard') && ['dashboard', '📊', 'Painel', 'Faturamento, trocas, produtos e clientes'],
@@ -2296,10 +2415,37 @@ function parsearCupom(linhas) {
   }
   return r;
 }
+/* XML da NFC-e / NF-e (o mesmo que o B2Click guarda/envia). */
+function parsearXmlNota(txt) {
+  const x = new DOMParser().parseFromString(txt, 'text/xml');
+  const t = (el, tag) => { const n = el && el.getElementsByTagName(tag)[0]; return n ? n.textContent.trim() : ''; };
+  const inf = x.getElementsByTagName('infNFe')[0];
+  if (!inf) throw new Error('XML sem infNFe: não parece uma NFC-e/NF-e.');
+  const ide = x.getElementsByTagName('ide')[0], dest = x.getElementsByTagName('dest')[0];
+  const chave = dig(inf.getAttribute('Id') || '') || dig(t(x, 'chNFe'));
+  const dh = t(ide, 'dhEmi') || t(ide, 'dEmi'), mod = t(ide, 'mod');
+  const r = { chave, numero: String(Number(t(ide, 'nNF')) || ''), modelo: mod === '55' ? 'NF-e' : mod === '65' ? 'NFC-e' : '', data: dh.slice(0, 10), dataHora: dh.length >= 16 ? dh.slice(0, 10) + ' ' + dh.slice(11, 19) : '',
+    total: num(String(t(x.getElementsByTagName('ICMSTot')[0], 'vNF')).replace('.', ',')), documento: dig(t(dest, 'CPF') || t(dest, 'CNPJ')), nome: maiusc(t(dest, 'xNome')), placa: '', osNumero: '', km: '', itens: [] };
+  [...x.getElementsByTagName('det')].forEach(d => {
+    const pr = d.getElementsByTagName('prod')[0], f = v => num(String(v).replace('.', ','));
+    const ean = t(pr, 'cEAN');
+    r.itens.push({ codigo: t(pr, 'cProd'), barras: /^\d{8,14}$/.test(ean) ? ean : '', desc: maiusc(t(pr, 'xProd')), qtd: f(t(pr, 'qCom')), preco: f(t(pr, 'vUnCom')), total: f(t(pr, 'vProd')) });
+  });
+  const obs = [t(x, 'infCpl')].concat([...x.getElementsByTagName('obsCont')].map(o => t(o, 'xTexto'))).join('\n').split(/[\n|;]+/).filter(Boolean);
+  if (obs.length) { const o2 = parsearCupom(obs); r.placa = o2.placa; r.osNumero = o2.osNumero; r.km = o2.km; }
+  r.consumidorPadrao = !r.documento || /CONSUMIDOR/.test(r.nome);
+  return r;
+}
+async function lerNota(arq) {
+  if (/\.xml$/i.test(arq.name) || arq.type.includes('xml')) { const txt = await arq.text(); const c = parsearXmlNota(txt); return { c, linhas: txt.split(/>\s*</).map(l => l.slice(0, 200)) }; }
+  const linhas = await lerPdfLinhas(arq);
+  if (!linhas.join('').trim()) throw new Error('Este PDF não tem texto (parece uma foto). Use o PDF ou o XML gerado pelo B2Click.');
+  return { c: parsearCupom(linhas), linhas };
+}
 function itemDoCupom(it) {
-  const p = D.prodCod[it.codigo] || D.prodBar[it.codigo] || null;
+  const p = D.prodCod[it.codigo] || D.prodBar[it.codigo] || (it.barras && D.prodBar[it.barras]) || null;
   const nome = p ? p.Nome : it.desc;
-  return { codigo: p ? String(p.Codigo) : String(it.codigo || ''), nome, tipo: adivinharTipo(nome + ' ' + (p && p.Grupo || '')), qtd: it.qtd, preco: it.preco, alternativas: [], noCadastro: !!p };
+  return { codigo: p ? String(p.Codigo) : String(it.codigo || ''), barras: it.barras || '', nome, tipo: adivinharTipo(nome + ' ' + (p && p.Grupo || '')), qtd: it.qtd, preco: it.preco, alternativas: [], noCadastro: !!p };
 }
 function arquivoBase64(arq) { return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(String(fr.result).split(',')[1] || ''); fr.onerror = () => rej(new Error('Não consegui ler o arquivo.')); fr.readAsDataURL(arq); }); }
 async function anexarPdfCupom(osId, c, arq) {
@@ -2314,13 +2460,11 @@ async function anexarCuponsLote(arqs, el) {
   for (const [k, arq] of [...arqs].entries()) {
     el.innerHTML = `<p class="suave peq">Lendo ${k + 1} de ${arqs.length}: ${esc(arq.name)}…</p>` + tabelaRes(res);
     try {
-      const linhas = await lerPdfLinhas(arq);
-      if (!linhas.join('').trim()) throw new Error('PDF sem texto (foto)');
-      const c = parsearCupom(linhas);
+      const { c } = await lerNota(arq);
       const f = await api('acharOSCupom', { numero: c.numero, chave: c.chave, osNumero: c.osNumero, posto: S.posto });
       if (f.erro) throw new Error(f.erro);
       if (!f.os) { res.push([arq.name, (c.modelo || 'Cupom') + ' ' + (c.numero || '?'), '—', 'O.S. não encontrada: confira o nº do cupom na baixa do caixa']); continue; }
-      if (f.os.CupomPdf && f.os.CupomChave === c.chave) { res.push([arq.name, (c.modelo || 'Cupom') + ' ' + c.numero, 'nº ' + f.os.Numero, 'já estava anexado']); continue; }
+      if ((/\.xml$/i.test(arq.name) ? f.os.CupomXml : f.os.CupomPdf) && f.os.CupomChave === c.chave) { res.push([arq.name, (c.modelo || 'Cupom') + ' ' + c.numero, 'nº ' + f.os.Numero, 'já estava anexado']); continue; }
       const j = await anexarPdfCupom(f.os.Id, c, arq);
       res.push([arq.name, (c.modelo || 'Cupom') + ' ' + c.numero, 'nº ' + j.os.Numero + ' – ' + (j.os.ClienteNome || ''), 'anexado' + (j.estoque && j.estoque.length ? ', baixa de ' + j.estoque.length + ' produto(s)' : '') + (c.consumidorPadrao ? ' – ATENÇÃO: no PDV saiu para consumidor padrão (ficou no histórico do cliente da O.S.)' : '')]);
     } catch (e) { res.push([arq.name, '—', '—', 'erro: ' + e.message]); }
@@ -2330,18 +2474,16 @@ async function anexarCuponsLote(arqs, el) {
 }
 function telaCupom(arg = {}) {
   V(`<div class="cab"><h1>Cupom fiscal</h1></div>
-    <div class="bloco"><p>Escolha o PDF da NFC-e ou NF-e emitida no B2Click. O app lê o cliente, a placa, o número da O.S. (perto da placa) e os produtos. Você confere tudo antes de gravar.</p>
-    <input type="file" id="cpArq" accept="application/pdf,.pdf"></div>
+    <div class="bloco"><p>Escolha o PDF ou o XML da NFC-e ou NF-e emitida no B2Click. O app lê o cliente, a placa, o número da O.S. (perto da placa) e os produtos. Você confere tudo antes de gravar.</p>
+    <input type="file" id="cpArq" accept="application/pdf,.pdf,.xml,text/xml,application/xml"></div>
     <div class="bloco"><h2>Vários de uma vez</h2><p class="suave peq">Para a triagem: escolha os PDFs das NFC-e / NF-e do dia. O app acha cada O.S. pelo nº do cupom que o caixa informou na baixa (ou pela chave / nº da O.S.), anexa o PDF e baixa o estoque se ainda não baixou.</p>
-    <input type="file" id="cpLote" accept="application/pdf,.pdf" multiple><div id="cpLoteRes" style="margin-top:.6rem"></div></div><div id="cpRev"></div>`);
+    <input type="file" id="cpLote" accept="application/pdf,.pdf,.xml,text/xml,application/xml" multiple><div id="cpLoteRes" style="margin-top:.6rem"></div></div><div id="cpRev"></div>`);
   $('#cpLote').onchange = e => ocupado(null, () => anexarCuponsLote(e.target.files, $('#cpLoteRes')));
   $('#cpArq').onchange = e => ocupado(null, async () => {
     const arq = e.target.files[0];
     if (!arq) return;
-    $('#cpRev').innerHTML = '<p class="vazio">Lendo o PDF…</p>';
-    const linhas = await lerPdfLinhas(arq);
-    if (!linhas.join('').trim()) throw new Error('Este PDF não tem texto (parece uma foto). Use o PDF gerado pelo B2Click.');
-    const c = parsearCupom(linhas);
+    $('#cpRev').innerHTML = '<p class="vazio">Lendo o arquivo…</p>';
+    const { c, linhas } = await lerNota(arq);
     if (arg.osNumero) c.osNumero = String(arg.osNumero);
     await revisarCupom(c, linhas, arq.name, arq);
   });
@@ -2432,7 +2574,7 @@ async function gravarCupom(R) {
     if (pode('os_editar')) ir('os-form', { id: j.os.Id }, { substituir: true }); else ir('cupom', {}, { substituir: true });
     return;
   }
-  if (!pode('os_fechar')) throw new Error('Não achei a O.S. deste cupom. Confira com o caixa o nº do cupom informado na baixa (ou o nº da O.S.).');
+  if (!pode('os_fechar') && !pode('cupom')) throw new Error('Não achei a O.S. deste cupom. Confira com o caixa o nº do cupom informado na baixa (ou o nº da O.S.).');
   if (!R.itens.length && R.modo !== 'manter') throw new Error('Nenhum produto para gravar.');
   if (R.placa && !placaValida(R.placa)) throw new Error('Confira a placa.');
   if (!c.numero && !c.chave && !await confirmar('Não achei o número nem a chave do cupom. Gravar mesmo assim?', 'Gravar')) return;
@@ -2561,7 +2703,7 @@ async function telaEstoque(arg = {}) {
 const TELAS = {
   inicio: telaInicio, clientes: telaClientes, cliente: telaCliente, 'cliente-form': telaClienteForm, modelos: telaModelos,
   os: telaOSLista, 'os-form': telaOSForm, produtos: telaProdutos, extrato: telaExtrato, lembretes: telaLembretes,
-  dashboard: telaDashboard, combustiveis: telaCombustiveis, importar: telaImportar, cupom: telaCupom, estoque: telaEstoque, usuarios: telaUsuarios, config: telaConfig, mais: telaMais, senha: () => telaTrocarSenha(false)
+  dashboard: telaDashboard, combustiveis: telaCombustiveis, catalogo: telaCatalogo, importar: telaImportar, cupom: telaCupom, estoque: telaEstoque, usuarios: telaUsuarios, config: telaConfig, mais: telaMais, senha: () => telaTrocarSenha(false)
 };
 window.addEventListener('load', () => {
   if ('serviceWorker' in navigator && !CFG.DEMO) navigator.serviceWorker.register('sw.js').catch(() => {});
