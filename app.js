@@ -1,9 +1,9 @@
-/* Troca de Óleo – app dos postos – v1.9.2 (14/11/2026) */
+/* Troca de Óleo – app dos postos – v1.9.3 (14/11/2026) */
 'use strict';
 
 /* ============ CONSTANTES E ESTADO ============ */
 const CFG = window.CONFIG || {};
-const VERSAO_APP = '1.9.2';
+const VERSAO_APP = '1.9.3';
 const GERAL_PADRAO = {
   MARCA_NOME: 'Postos Pichilau', MARCA_SUBTITULO: 'Troca de Óleo', COR_PRINCIPAL: '#4A1B6D', COR_DESTAQUE: '#FFC20E', COR_SECUNDARIA: '#58595B', ESTOQUE_TOLERANCIA: '0',
   DESCANSO_MINUTOS: '3', DESCANSO_IMAGENS: 'descanso.jpg', DESCANSO_TEXTO: 'Toque na tela para começar', CUPOM_ROTULO_OS: 'OS, O.S., ORDEM DE SERVICO, ORDEM'
@@ -1294,7 +1294,7 @@ function desenharItensOS() {
     const p = D.prodCod[it.codigo];
     const falta = p && !p._comb && num(p.Estoque) < num(it.qtd);
     const bloq = falta && semEstoqueBloqueado();
-    return `<div class="veic" data-i="${i}"${bloq ? ' style="border-color:var(--alerta)"' : ''}><div style="display:flex;justify-content:space-between;gap:.5rem"><div style="min-width:0"><b>${esc(it.nome)}</b><br><span class="suave peq">${esc(TIPOS_ITEM[it.tipo] || '')}${it.codigo ? ' – cód. interno ' + esc(it.codigo) : ''}${barrasDe(it) ? ' – barras ' + esc(barrasDe(it)) : ''}</span>${falta ? `<br><span class="erro-campo">${semEstoqueBloqueado() ? 'Sem saldo suficiente: ' : 'Estoque no sistema: '}${fmtQtd(p.Estoque)}</span>` : ''}</div>${ed ? `<button class="btn-link" data-rm aria-label="Remover ${esc(it.nome)}" style="font-size:1.5rem;line-height:1">×</button>` : ''}</div>
+    return `<div class="veic" data-i="${i}"${bloq ? ' style="border-color:var(--alerta)"' : ''}><div style="display:flex;justify-content:space-between;gap:.5rem"><div style="min-width:0"><b>${esc(it.nome)}</b><br><span class="suave peq">${esc(TIPOS_ITEM[it.tipo] || '')}${it.codigo ? ' – cód. interno ' + esc(it.codigo) : ''}${barrasDe(it) ? ' – barras ' + esc(barrasDe(it)) : ''}</span>${barrasDe(it) || it.codigo ? `<div class="os-bip">${svgBarras(barrasDe(it) || it.codigo, { larg: 200, alt: 34 })}</div>` : ''}${falta ? `<br><span class="erro-campo">${semEstoqueBloqueado() ? 'Sem saldo suficiente: ' : 'Estoque no sistema: '}${fmtQtd(p.Estoque)}</span>` : ''}</div>${ed ? `<button class="btn-link" data-rm aria-label="Remover ${esc(it.nome)}" style="font-size:1.5rem;line-height:1">×</button>` : ''}</div>
       ${ed && it.alternativas && it.alternativas.length > 1 ? `<select data-alt style="margin-top:.4rem" aria-label="Trocar produto">${it.alternativas.map(a => `<option value="${esc(a.codigo)}"${a.codigo === it.codigo ? ' selected' : ''}>${esc(a.nome)}${a.existe ? ' – ' + brl(a.preco) + ' (est. ' + fmtQtd(a.estoque) + ')' : ' – fora do cadastro'}</option>`).join('')}</select>` : ''}
       <div class="botoes" style="align-items:center;margin-top:.4rem"><label class="peq">Qtd <input data-q type="text" inputmode="decimal" value="${esc(String(it.qtd).replace('.', ','))}" style="width:5rem;min-height:2.3rem" ${ed ? '' : 'disabled'}></label>
       <label class="peq">Preço ${ed && podePreco ? `<input data-p type="text" inputmode="decimal" value="${esc(num(it.preco).toFixed(2).replace('.', ','))}" style="width:6.5rem;min-height:2.3rem">` : `<b class="num">${brl(it.preco)}</b>`}</label>
@@ -1355,13 +1355,15 @@ function modulosBarras(v) {
   return { m, tipo: 'Code 128' };
 }
 /** SVG do código de barras. largura em px (tela) ou mm (impressão, com unidade 'mm'). */
-function svgBarras(v, { alt = 46, larg = 260, un = 'px' } = {}) {
+function svgBarras(v, { alt = 46, larg = 260, un = 'px', texto = true } = {}) {
   const r = modulosBarras(v);
   if (!r) return '';
-  const q = 10, n = r.m.length + q * 2;
+  const q = 10, n = r.m.length + q * 2, k = n / 115, fs = 11 * k, tx = texto ? fs * 1.2 : 0;
+  alt = alt * k; const H = alt + tx;
   let x = q, rects = '';
   r.m.replace(/1+|0+/g, s => { if (s[0] === '1') rects += `<rect x="${x}" y="0" width="${s.length}" height="${alt}"/>`; x += s.length; return s; });
-  return `<svg xmlns="http://www.w3.org/2000/svg" class="cod-barras" viewBox="0 0 ${n} ${alt}" width="${larg}${un}" height="${alt * larg / n}${un}" preserveAspectRatio="none" shape-rendering="crispEdges" role="img" aria-label="Código de barras ${String(v).replace(/"/g, '')}"><rect width="${n}" height="${alt}" fill="#fff"/><g fill="#000">${rects}</g></svg>`;
+  const num = texto ? `<text x="${n / 2}" y="${alt + fs}" text-anchor="middle" font-family="Consolas,'Courier New',monospace" font-size="${fs}" font-weight="700" textLength="${Math.min(n - 8 * k, String(v).length * 8.5 * k)}" lengthAdjust="spacingAndGlyphs">${String(v).replace(/[<&>]/g, '')}</text>` : '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" class="cod-barras" viewBox="0 0 ${n} ${H}" width="${larg}${un}" height="${H * larg / n}${un}" preserveAspectRatio="none" shape-rendering="crispEdges" role="img" aria-label="Código de barras ${String(v).replace(/"/g, '')}"><rect width="${n}" height="${H}" fill="#fff"/><g fill="#000">${rects}${num}</g></svg>`;
 }
 
 /* ============ LANÇAR NO B2CLICK (caixa) ============ */
